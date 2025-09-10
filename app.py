@@ -2722,7 +2722,7 @@ def _has_city_state_country(display_str: str) -> bool:
     parts = [p.strip() for p in (display_str or "").split(",")]
     return len([p for p in parts if p]) >= 3
 
-if place_input_val and place_input_val != st.session_state.get('last_place_checked', ''):
+if place_input_val:
     try:
         # If user typed only a city (no comma), show suggestions; if unique, auto-complete.
         typed_has_commas = ("," in place_input_val)
@@ -2732,7 +2732,7 @@ if place_input_val and place_input_val != st.session_state.get('last_place_check
             st.session_state.pop('pob_lat', None)
             st.session_state.pop('pob_lon', None)
             st.session_state.pop('pob_display', None)
-            st.session_state['last_place_checked'] = place_input_val
+            # (removed) do not set last_place_checked here to allow dropdown rendering
         else:
             # Build display list
             options = [c[0] for c in candidates]
@@ -2743,7 +2743,7 @@ if place_input_val and place_input_val != st.session_state.get('last_place_check
                 st.session_state['pob_display'] = disp
                 st.session_state['pob_lat'] = lat
                 st.session_state['pob_lon'] = lon
-                st.session_state['last_place_checked'] = disp
+                st.session_state['last_place_checked'] = disp  # committed
                 st.session_state.pop('pob_choice', None)
                 st.rerun()
             else:
@@ -2761,13 +2761,13 @@ if place_input_val and place_input_val != st.session_state.get('last_place_check
                             st.session_state['pob_lon'] = lon
                             # Keep the visible text field in sync
                             st.session_state['place_input'] = disp
-                            st.session_state['last_place_checked'] = place_input_val
+                            # (removed) do not set last_place_checked here to allow dropdown rendering
     except Exception:
         # On any error, clear coords to avoid wrong UTC
         st.session_state.pop('pob_lat', None)
         st.session_state.pop('pob_lon', None)
         st.session_state.pop('pob_display', None)
-        st.session_state['last_place_checked'] = place_input_val
+        # (removed) do not set last_place_checked here to allow dropdown rendering
         pass
 
 # Row 2: Date of Birth, Time of Birth, and UTC offset override
