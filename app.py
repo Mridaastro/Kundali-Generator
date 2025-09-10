@@ -1047,6 +1047,72 @@ def geocode(place, api_key):
     raise RuntimeError("Place not found.")
 
 
+
+INDIA_STATE_ABBR = {
+    "AN": "Andaman and Nicobar Islands",
+    "AP": "Andhra Pradesh",
+    "AR": "Arunachal Pradesh",
+    "AS": "Assam",
+    "BR": "Bihar",
+    "CH": "Chandigarh",
+    "CG": "Chhattisgarh",
+    "CT": "Chhattisgarh",  # sometimes CT used
+    "DD": "Daman and Diu",
+    "DL": "Delhi",
+    "DN": "Dadra and Nagar Haveli and Daman and Diu",
+    "GA": "Goa",
+    "GJ": "Gujarat",
+    "HP": "Himachal Pradesh",
+    "HR": "Haryana",
+    "JH": "Jharkhand",
+    "JK": "Jammu and Kashmir",
+    "KA": "Karnataka",
+    "KL": "Kerala",
+    "LA": "Ladakh",
+    "LD": "Lakshadweep",
+    "MH": "Maharashtra",
+    "ML": "Meghalaya",
+    "MN": "Manipur",
+    "MP": "Madhya Pradesh",
+    "MZ": "Mizoram",
+    "NL": "Nagaland",
+    "OD": "Odisha",
+    "OR": "Odisha",
+    "PB": "Punjab",
+    "PY": "Puducherry",
+    "RJ": "Rajasthan",
+    "SK": "Sikkim",
+    "TN": "Tamil Nadu",
+    "TR": "Tripura",
+    "TS": "Telangana",
+    "UK": "Uttarakhand",
+    "UT": "Uttarakhand",
+    "UP": "Uttar Pradesh",
+    "WB": "West Bengal"
+}
+
+def _expand_india_abbrev(display_str: str) -> str:
+    """
+    Replace 2-letter Indian state/UT abbreviations in a 'City, State, Country'
+    style display string with full names.
+    Only replaces a standalone 2-letter token before 'India' to avoid false hits.
+    """
+    if not display_str or "India" not in display_str:
+        return display_str
+    parts = [p.strip() for p in display_str.split(",")]
+    # Try to replace the token that is immediately before 'India' (state)
+    for i in range(len(parts) - 1):
+        if parts[i+1].lower() == "india":
+            token = parts[i]
+            if token in INDIA_STATE_ABBR:
+                parts[i] = INDIA_STATE_ABBR[token]
+                return ", ".join(parts)
+    # Also handle cases like "... , <district>, MP, India"
+    for i in range(len(parts) - 2):
+        if parts[i+2].lower() == "india" and parts[i+1] in INDIA_STATE_ABBR:
+            parts[i+1] = INDIA_STATE_ABBR[parts[i+1]]
+            return ", ".join(parts)
+    return display_str
 def search_places(query_text, api_key, limit=6):
     """
     Return a list of candidates [(display, lat, lon)] for the typed query.
@@ -1069,7 +1135,7 @@ def search_places(query_text, api_key, limit=6):
             with urllib.request.urlopen(base + params, timeout=15) as r:
                 j = json.loads(r.read().decode())
             for it in j.get("results", []):
-                disp = it.get("formatted") or it.get("name") or query_text
+                disp = _expand_india_abbrev(it.get(\"formatted\") or it.get(\"name\") or query_text)
                 lat = float(it["lat"])
                 lon = float(it["lon"])
                 results.append((disp, lat, lon))
@@ -1086,7 +1152,7 @@ def search_places(query_text, api_key, limit=6):
             with urllib.request.urlopen(req, timeout=20) as r:
                 j = json.loads(r.read().decode())
             for it in j:
-                disp = it.get("display_name") or query_text
+                disp = _expand_india_abbrev(it.get(\"display_name\") or query_text)
                 lat = float(it["lat"])
                 lon = float(it["lon"])
                 results.append((disp, lat, lon))
@@ -2682,13 +2748,12 @@ if place_input_val and place_input_val != st.session_state.get('last_place_check
                 st.rerun()
             else:
                 # Multiple matches (or user already typed commas) -> present selectbox.
-                render_label('Select Place (City, State, Country)', False)
-                default_idx = 0
-                if st.session_state.get('pob_display') in options:
-                    default_idx = options.index(st.session_state['pob_display'])
-                choice = st.selectbox('', options, index=default_idx if default_idx < len(options) else 0, key='pob_choice')
+                
+with row1c2:
+    render_label('Select Place (City, State, Country)', False)
+    choice = st.selectbox('', options, index=default_idx if default_idx < len(options) else 0, key='pob_choice')
                 if choice:
-                    # Find chosen tuple
+                    # Find chosen tuple and update visible Place field to 'City, State, Country'
                     match = next((c for c in candidates if c[0] == choice), None)
                     if match:
                         disp, lat, lon = match
@@ -2696,8 +2761,7 @@ if place_input_val and place_input_val != st.session_state.get('last_place_check
                         st.session_state['pob_lat'] = lat
                         st.session_state['pob_lon'] = lon
                         # Keep the visible text field in sync if user had typed raw city
-                        if not typed_has_commas:
-                            st.session_state['place_input'] = disp
+                        st.session_state['place_input'] = disp
                         st.session_state['last_place_checked'] = place_input_val
     except Exception:
         # On any error, clear coords to avoid wrong UTC
