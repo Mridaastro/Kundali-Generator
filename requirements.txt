@@ -1,0 +1,7 @@
+streamlit
+pandas
+pyswisseph
+requests
+timezonefinder
+pytz
+python-docx
