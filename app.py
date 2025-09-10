@@ -2763,7 +2763,6 @@ with row2c3:
 
     st.text_input("UTC (auto)", value=computed_tz, key="tz_input", label_visibility="collapsed", disabled=True)
 
-with col2:
     generate_clicked = st.button("Generate Kundali", key="gen_btn")
     if generate_clicked:
         st.session_state['generate_clicked'] = True
