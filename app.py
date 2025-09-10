@@ -2687,6 +2687,27 @@ with row1c2:
     place = st.text_input("Place of Birth",
                           key="place_input",
                           label_visibility="collapsed")
+# --- Inline Select Place dropdown (same column, same width) ---
+typed_val = (st.session_state.get('place_input') or '').strip()
+if typed_val:
+    api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
+    _cands = search_places(typed_val, api_key, limit=6)
+    _opts = [c[0] for c in _cands]
+    # Show dropdown only if no comma in typed text and there are multiple options
+    if (',' not in typed_val) and len(_opts) > 1:
+        render_label('Select Place (City, State, Country)', False)
+        _choice = st.selectbox('', _opts, key='pob_choice_inline')
+        if _choice:
+            _match = next((c for c in _cands if c[0] == _choice), None)
+            if _match:
+                _disp, _lat, _lon = _match
+                st.session_state['place_input'] = _disp
+                st.session_state['pob_display'] = _disp
+                st.session_state['pob_lat'] = _lat
+                st.session_state['pob_lon'] = _lon
+                st.session_state['last_place_checked'] = _disp
+                st.experimental_rerun()
+
 
 # Clear previous generation if any field changes
 current_form_values = {
@@ -2820,9 +2841,9 @@ with row2c3:
 
     computed_tz = st.session_state.get('tz_input', '')
     if computed_tz:
-        render_label('UTC offset (auto-detected)', False)
+        render_label('UTC offset', False)
     else:
-        render_label('UTC offset (auto-detected; requires City, State, Country + DOB + TOB)', not ready_for_utc)
+        render_label('UTC offset', not ready_for_utc)
 
     st.text_input("UTC (auto)", value=computed_tz, key="tz_input", label_visibility="collapsed", disabled=True)
 
