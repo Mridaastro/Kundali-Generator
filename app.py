@@ -1135,6 +1135,24 @@ def _apply_pob_choice_inline():
         st.experimental_rerun()
     except Exception:
         pass
+
+CITY_ONLY_NOMINATIM = {'city', 'town', 'municipality', 'metropolis'}
+CITY_ONLY_GEOAPIFY = {'city', 'town', 'municipality', 'metropolis'}
+
+def _is_city_like_geoapify(item: dict) -> bool:
+    # Geoapify returns 'result_type' and sometimes 'rank'/'place_category'
+    rt = (item.get('result_type') or '').lower()
+    if rt in CITY_ONLY_GEOAPIFY:
+        return True
+    # Some Geoapify results provide a 'city' field explicitly
+    if item.get('city'):
+        return True
+    return False
+
+def _is_city_like_nominatim(item: dict) -> bool:
+    # Nominatim returns 'type' (e.g., city, town, village, hamlet, suburb)
+    typ = (item.get('type') or '').lower()
+    return typ in CITY_ONLY_NOMINATIM
 def search_places(query_text, api_key, limit=6):
     """
     Return a list of candidates [(display, lat, lon)] for the typed query.
@@ -1157,10 +1175,12 @@ def search_places(query_text, api_key, limit=6):
             with urllib.request.urlopen(base + params, timeout=15) as r:
                 j = json.loads(r.read().decode())
             for it in j.get("results", []):
-                disp = _expand_india_abbrev(it.get("formatted") or it.get("name") or query_text)
-                lat = float(it["lat"])
-                lon = float(it["lon"])
-                results.append((disp, lat, lon))
+            if not _is_city_like_geoapify(it):
+                continue
+            disp = _expand_india_abbrev(it.get("formatted") or it.get("name") or query_text)
+            lat = float(it["lat"])
+            lon = float(it["lon"])
+            results.append((disp, lat, lon))
         # Fallback or additional
         if not results:
             nom_base = "https://nominatim.openstreetmap.org/search?"
@@ -1174,10 +1194,12 @@ def search_places(query_text, api_key, limit=6):
             with urllib.request.urlopen(req, timeout=20) as r:
                 j = json.loads(r.read().decode())
             for it in j:
-                disp = _expand_india_abbrev(it.get("display_name") or query_text)
-                lat = float(it["lat"])
-                lon = float(it["lon"])
-                results.append((disp, lat, lon))
+            if not _is_city_like_nominatim(it):
+                continue
+            disp = _expand_india_abbrev(it.get("display_name") or query_text)
+            lat = float(it["lat"])
+            lon = float(it["lon"])
+            results.append((disp, lat, lon))
     except Exception as e:
         # silent fail -> empty list
         results = []
@@ -2709,7 +2731,7 @@ with row1c2:
     place = st.text_input("Place of Birth",
                           key="place_input",
                           label_visibility="collapsed")
-# --- Inline Select Place dropdown (same column, same width) ---
+    _render_inline_pob_dropdown()# --- Inline Select Place dropdown (same column, same width) ---
 typed_val = (st.session_state.get('place_input') or '').strip()
 if typed_val:
     api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
@@ -2835,7 +2857,7 @@ with row2c3:
     tob_val = st.session_state.get('tob_input')
 
     # Show label depending on readiness
-    ready_for_utc = bool(pob_disp) and _has_city_state_country(pob_disp) and bool(dob_val) and bool(tob_val)
+    ready_for_utc = bool(pob_disp) and _has_city_state_country(pob_disp)
 
     if ready_for_utc:
         try:
@@ -3662,3 +3684,15 @@ if (st.session_state.get('kundali_doc')
 
 if __name__ == '__main__':
     main()
+
+def _render_inline_pob_dropdown():
+    typed_val = (st.session_state.get('place_input') or '').strip()
+    if not typed_val:
+        return
+    api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
+    _cands = search_places(typed_val, api_key, limit=6)
+    _opts = [c[0] for c in _cands]
+    # Show dropdown only if no comma in typed text and there are multiple *city* options
+    if (',' not in typed_val) and len(_opts) > 1:
+        render_label('Select Place (City, State, Country)', False)
+        st.selectbox('', _opts, key='pob_choice_inline', on_change=_apply_pob_choice_inline)
