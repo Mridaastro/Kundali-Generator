@@ -1172,17 +1172,18 @@ def search_places(query_text, api_key, limit=6):
                 "limit": limit,
                 "apiKey": api_key
             })
+
             with urllib.request.urlopen(base + params, timeout=15) as r:
                 j = json.loads(r.read().decode())
             for it in j.get("results", []):
-            if not _is_city_like_geoapify(it):
-                continue
-            disp = _expand_india_abbrev(it.get("formatted") or it.get("name") or query_text)
-            lat = float(it["lat"])
-            lon = float(it["lon"])
-            results.append((disp, lat, lon))
-        # Fallback or additional
+                if not _is_city_like_geoapify(it):
+                    continue
+                disp = _expand_india_abbrev(it.get("formatted") or it.get("name") or query_text)
+                lat = float(it["lat"])
+                lon = float(it["lon"])
+                results.append((disp, lat, lon))
         if not results:
+
             nom_base = "https://nominatim.openstreetmap.org/search?"
             params = urllib.parse.urlencode({
                 "q": query_text,
@@ -1194,12 +1195,12 @@ def search_places(query_text, api_key, limit=6):
             with urllib.request.urlopen(req, timeout=20) as r:
                 j = json.loads(r.read().decode())
             for it in j:
-            if not _is_city_like_nominatim(it):
-                continue
-            disp = _expand_india_abbrev(it.get("display_name") or query_text)
-            lat = float(it["lat"])
-            lon = float(it["lon"])
-            results.append((disp, lat, lon))
+                if not _is_city_like_nominatim(it):
+                    continue
+                disp = _expand_india_abbrev(it.get("display_name") or query_text)
+                lat = float(it["lat"])
+                lon = float(it["lon"])
+                results.append((disp, lat, lon))
     except Exception as e:
         # silent fail -> empty list
         results = []
