@@ -2677,7 +2677,7 @@ with row1c1:
     name = st.text_input("Name",
                          key="name_input",
                          label_visibility="collapsed")
-with row1c2:
+                with row1c2:
     place_val = (st.session_state.get('place_input', '') or '').strip()
     place_err = (st.session_state.get('submitted') or
                  st.session_state.get('generate_clicked')) and (not place_val)
@@ -2749,7 +2749,7 @@ if place_input_val and place_input_val != st.session_state.get('last_place_check
             else:
                 # Multiple matches (or user already typed commas) -> present selectbox.
                 
-with row1c2:
+                with row1c2:
     render_label('Select Place (City, State, Country)', False)
     choice = st.selectbox('', options, index=default_idx if default_idx < len(options) else 0, key='pob_choice')
                 if choice:
