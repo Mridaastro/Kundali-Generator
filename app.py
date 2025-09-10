@@ -2837,9 +2837,19 @@ with row2c3:
     # Show label depending on readiness
     ready_for_utc = bool(pob_disp) and _has_city_state_country(pob_disp) and bool(dob_val) and bool(tob_val)
 
-    if ready_for_utc and ('pob_lat' in st.session_state) and ('pob_lon' in st.session_state):
+    if ready_for_utc:
         try:
-            offset_hours = get_timezone_offset_simple(st.session_state['pob_lat'], st.session_state['pob_lon'])
+            lat = st.session_state.get('pob_lat')
+            lon = st.session_state.get('pob_lon')
+            if lat is None or lon is None:
+                api_key = st.secrets.get('GEOAPIFY_API_KEY', '')
+                _lat, _lon, _disp = geocode(pob_disp or place_val, api_key)
+                st.session_state['pob_lat'], st.session_state['pob_lon'] = _lat, _lon
+                if _disp:
+                    st.session_state['pob_display'] = _disp
+            else:
+                _lat, _lon = lat, lon
+            offset_hours = get_timezone_offset_simple(_lat, _lon)
             sign = '+' if offset_hours >= 0 else '-'
             total_minutes = int(round(abs(offset_hours) * 60))
             hh, mm = divmod(total_minutes, 60)
@@ -2855,7 +2865,7 @@ with row2c3:
     else:
         render_label('UTC offset', not ready_for_utc)
 
-    st.text_input("UTC (auto)", value=computed_tz, key="tz_input", label_visibility="collapsed", disabled=True)
+    st.text_input("UTC offset", value=computed_tz, key="tz_input", label_visibility="collapsed", disabled=True)
 
     generate_clicked = st.button("Generate Kundali", key="gen_btn")
     if generate_clicked:
