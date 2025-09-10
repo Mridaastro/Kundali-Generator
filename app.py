@@ -2748,21 +2748,20 @@ if place_input_val and place_input_val != st.session_state.get('last_place_check
                 st.rerun()
             else:
                 # Multiple matches (or user already typed commas) -> present selectbox.
-                
                 with row1c2:
-    render_label('Select Place (City, State, Country)', False)
-    choice = st.selectbox('', options, index=default_idx if default_idx < len(options) else 0, key='pob_choice')
-                if choice:
-                    # Find chosen tuple and update visible Place field to 'City, State, Country'
-                    match = next((c for c in candidates if c[0] == choice), None)
-                    if match:
-                        disp, lat, lon = match
-                        st.session_state['pob_display'] = disp
-                        st.session_state['pob_lat'] = lat
-                        st.session_state['pob_lon'] = lon
-                        # Keep the visible text field in sync if user had typed raw city
-                        st.session_state['place_input'] = disp
-                        st.session_state['last_place_checked'] = place_input_val
+                    render_label('Select Place (City, State, Country)', False)
+                    choice = st.selectbox('', options, index=default_idx if default_idx < len(options) else 0, key='pob_choice')
+                    if choice:
+                        # Find chosen tuple and update visible Place field to 'City, State, Country'
+                        match = next((c for c in candidates if c[0] == choice), None)
+                        if match:
+                            disp, lat, lon = match
+                            st.session_state['pob_display'] = disp
+                            st.session_state['pob_lat'] = lat
+                            st.session_state['pob_lon'] = lon
+                            # Keep the visible text field in sync
+                            st.session_state['place_input'] = disp
+                            st.session_state['last_place_checked'] = place_input_val
     except Exception:
         # On any error, clear coords to avoid wrong UTC
         st.session_state.pop('pob_lat', None)
