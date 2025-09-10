@@ -1114,27 +1114,6 @@ def _expand_india_abbrev(display_str: str) -> str:
             return ", ".join(parts)
     return display_str
 
-def _apply_pob_choice_inline():
-    """Callback to apply the inline Select Place choice safely."""
-    try:
-        choice = st.session_state.get('pob_choice_inline')
-        if not choice:
-            return
-        api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
-        cands = search_places(st.session_state.get('place_input',''), api_key, limit=6)
-        match = next((c for c in cands if c[0] == choice), None)
-        if not match:
-            return
-        disp, lat, lon = match
-        # Update session_state for next run
-        st.session_state['place_input'] = disp
-        st.session_state['pob_display'] = disp
-        st.session_state['pob_lat'] = lat
-        st.session_state['pob_lon'] = lon
-        st.session_state['last_place_checked'] = disp
-        st.experimental_rerun()
-    except Exception:
-        pass
 
 CITY_ONLY_NOMINATIM = {'city', 'town', 'municipality', 'metropolis'}
 CITY_ONLY_GEOAPIFY = {'city', 'town', 'municipality', 'metropolis'}
@@ -1229,27 +1208,29 @@ def get_timezone_offset_simple(lat, lon):
         tzname = tf.timezone_at(lat=lat, lng=lon) or "Etc/UTC"
 
         # Build local (naive) datetime from form inputs; default to today's 12:00 if missing
-        dob = st.session_state.get('dob_input')
-        tob = st.session_state.get('tob_input')
         import datetime
+        dob = st.session_state.get('dob_input') if 'st' in globals() else None
+        tob = st.session_state.get('tob_input') if 'st' in globals() else None
+        
         if not dob:
             dob = datetime.date.today()
         if not tob:
             tob = datetime.time(12, 0)
 
-        dt_local = datetime.datetime(dob.year, dob.month, dob.day, tob.hour, tob.minute, 0)
-
+        # Use the actual birth date/time for accurate offset calculation
         tz = pytz.timezone(tzname)
-        aware = tz.localize(dt_local, is_dst=None)
-        offset_hours = tz.utcoffset(aware).total_seconds() / 3600.0
+        
+        # Create naive datetime for the birth date
+        dt_naive = datetime.datetime(dob.year, dob.month, dob.day, tob.hour, tob.minute, 0)
+        
+        # Localize to the timezone to get the correct offset for that specific date/time
+        dt_aware = tz.localize(dt_naive, is_dst=None)
+        offset_hours = dt_aware.utcoffset().total_seconds() / 3600.0
+        
+        print(f"DEBUG: Timezone {tzname} offset: {offset_hours} hours for {dob}")
         return offset_hours
     except Exception as e:
         print(f"DEBUG: get_timezone_offset_simple fallback due to: {e}")
-        return 0.0
-
-
-    except Exception as e:
-        print(f"DEBUG: Timezone detection failed: {e}")
         return 0.0
 
 
@@ -2732,18 +2713,6 @@ with row1c2:
     place = st.text_input("Place of Birth",
                           key="place_input",
                           label_visibility="collapsed")
-    def _render_inline_pob_dropdown():
-        typed_val = (st.session_state.get('place_input') or '').strip()
-        if not typed_val:
-            return
-        api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
-        _cands = search_places(typed_val, api_key, limit=6)
-        _opts = [c[0] for c in _cands]
-        # Show dropdown only if no comma in typed text and there are multiple *city* options
-        if (',' not in typed_val) and len(_opts) > 1:
-            render_label('Select Place (City, State, Country)', False)
-            st.selectbox('', _opts, key='pob_choice_inline', on_change=_apply_pob_choice_inline)
-    _render_inline_pob_dropdown()
 # Clear previous generation if any field changes
 current_form_values = {
     'name': st.session_state.get('name_input', '').strip(),
@@ -2801,13 +2770,27 @@ if place_input_val:
                 st.session_state['pob_lon'] = lon
                 st.session_state['last_place_checked'] = disp  # committed
                 st.session_state.pop('pob_choice', None)
+                # Auto-populate timezone immediately
+                try:
+                    offset_hours = get_timezone_offset_simple(lat, lon)
+                    sign = '+' if offset_hours >= 0 else '-'
+                    total_minutes = int(round(abs(offset_hours) * 60))
+                    hh, mm = divmod(total_minutes, 60)
+                    formatted = f"{sign}{hh:02d}:{mm:02d}"
+                    st.session_state['tz_input'] = formatted
+                    print(f"DEBUG: Set timezone to {formatted} for {disp}")
+                except Exception as e:
+                    print(f"DEBUG: Timezone calculation failed: {e}")
                 st.rerun()
             else:
                 # Multiple matches (or user already typed commas) -> present selectbox.
                 with row1c2:
                     render_label('Select Place (City, State, Country)', False)
-                    choice = st.selectbox('', options, index=default_idx if default_idx < len(options) else 0, key='pob_choice')
-                    if choice:
+                    # Add placeholder option at the beginning
+                    options_with_placeholder = ['Select from dropdown'] + options
+                    choice = st.selectbox('Select Place', options_with_placeholder, index=0, key='pob_choice', label_visibility="collapsed")
+                    # Skip processing if placeholder is selected
+                    if choice and choice != 'Select from dropdown':
                         # Find chosen tuple and update visible Place field to 'City, State, Country'
                         match = next((c for c in candidates if c[0] == choice), None)
                         if match:
@@ -2817,7 +2800,19 @@ if place_input_val:
                             st.session_state['pob_lon'] = lon
                             # Keep the visible text field in sync
                             st.session_state['place_input'] = disp
-                            # (removed) do not set last_place_checked here to allow dropdown rendering
+                            st.session_state['last_place_checked'] = disp  # committed
+                            # Auto-populate timezone immediately
+                            try:
+                                offset_hours = get_timezone_offset_simple(lat, lon)
+                                sign = '+' if offset_hours >= 0 else '-'
+                                total_minutes = int(round(abs(offset_hours) * 60))
+                                hh, mm = divmod(total_minutes, 60)
+                                formatted = f"{sign}{hh:02d}:{mm:02d}"
+                                st.session_state['tz_input'] = formatted
+                                print(f"DEBUG: Set timezone to {formatted} for {disp}")
+                            except Exception as e:
+                                print(f"DEBUG: Timezone calculation failed: {e}")
+                            st.rerun()
     except Exception:
         # On any error, clear coords to avoid wrong UTC
         st.session_state.pop('pob_lat', None)
