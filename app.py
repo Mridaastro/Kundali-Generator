@@ -1113,6 +1113,28 @@ def _expand_india_abbrev(display_str: str) -> str:
             parts[i+1] = INDIA_STATE_ABBR[parts[i+1]]
             return ", ".join(parts)
     return display_str
+
+def _apply_pob_choice_inline():
+    """Callback to apply the inline Select Place choice safely."""
+    try:
+        choice = st.session_state.get('pob_choice_inline')
+        if not choice:
+            return
+        api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
+        cands = search_places(st.session_state.get('place_input',''), api_key, limit=6)
+        match = next((c for c in cands if c[0] == choice), None)
+        if not match:
+            return
+        disp, lat, lon = match
+        # Update session_state for next run
+        st.session_state['place_input'] = disp
+        st.session_state['pob_display'] = disp
+        st.session_state['pob_lat'] = lat
+        st.session_state['pob_lon'] = lon
+        st.session_state['last_place_checked'] = disp
+        st.experimental_rerun()
+    except Exception:
+        pass
 def search_places(query_text, api_key, limit=6):
     """
     Return a list of candidates [(display, lat, lon)] for the typed query.
@@ -2696,19 +2718,7 @@ if typed_val:
     # Show dropdown only if no comma in typed text and there are multiple options
     if (',' not in typed_val) and len(_opts) > 1:
         render_label('Select Place (City, State, Country)', False)
-        _choice = st.selectbox('', _opts, key='pob_choice_inline')
-        if _choice:
-            _match = next((c for c in _cands if c[0] == _choice), None)
-            if _match:
-                _disp, _lat, _lon = _match
-                st.session_state['place_input'] = _disp
-                st.session_state['pob_display'] = _disp
-                st.session_state['pob_lat'] = _lat
-                st.session_state['pob_lon'] = _lon
-                st.session_state['last_place_checked'] = _disp
-                st.experimental_rerun()
-
-
+        st.selectbox('', _opts, key='pob_choice_inline', on_change=_apply_pob_choice_inline)
 # Clear previous generation if any field changes
 current_form_values = {
     'name': st.session_state.get('name_input', '').strip(),
