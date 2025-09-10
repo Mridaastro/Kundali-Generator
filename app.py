@@ -2732,7 +2732,7 @@ with row1c2:
     place = st.text_input("Place of Birth",
                           key="place_input",
                           label_visibility="collapsed")
-    _render_inline_pob_dropdown()# --- Inline Select Place dropdown (same column, same width) ---
+    _render_inline_pob_dropdown()
 typed_val = (st.session_state.get('place_input') or '').strip()
 if typed_val:
     api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
