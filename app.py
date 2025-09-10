@@ -1135,7 +1135,7 @@ def search_places(query_text, api_key, limit=6):
             with urllib.request.urlopen(base + params, timeout=15) as r:
                 j = json.loads(r.read().decode())
             for it in j.get("results", []):
-                disp = _expand_india_abbrev(it.get(\"formatted\") or it.get(\"name\") or query_text)
+                disp = _expand_india_abbrev(it.get("formatted") or it.get("name") or query_text)
                 lat = float(it["lat"])
                 lon = float(it["lon"])
                 results.append((disp, lat, lon))
@@ -1152,7 +1152,7 @@ def search_places(query_text, api_key, limit=6):
             with urllib.request.urlopen(req, timeout=20) as r:
                 j = json.loads(r.read().decode())
             for it in j:
-                disp = _expand_india_abbrev(it.get(\"display_name\") or query_text)
+                disp = _expand_india_abbrev(it.get("display_name") or query_text)
                 lat = float(it["lat"])
                 lon = float(it["lon"])
                 results.append((disp, lat, lon))
