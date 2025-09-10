@@ -1218,24 +1218,6 @@ def search_places(query_text, api_key, limit=6):
 
 
 
-
-
-def _render_inline_pob_dropdown():
-    """Render the Select Place dropdown directly under Place-of-Birth (same column/width).
-    Appears only when user typed a city (no comma) and there are multiple *city* matches.
-    """
-    typed_val = (st.session_state.get('place_input') or '').strip()
-    if not typed_val:
-        return
-    api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
-    candidates = search_places(typed_val, api_key, limit=6)
-    options = [c[0] for c in candidates]
-    if (',' not in typed_val) and len(options) > 1:
-        render_label('Select Place (City, State, Country)', False)
-        st.selectbox('', options, key='pob_choice_inline', on_change=_apply_pob_choice_inline)
-
-
-
 def get_timezone_offset_simple(lat, lon):
     """
     Return the correct UTC offset (in hours, may be fractional) for the *birth* local datetime.
@@ -2750,21 +2732,18 @@ with row1c2:
     place = st.text_input("Place of Birth",
                           key="place_input",
                           label_visibility="collapsed")
+    def _render_inline_pob_dropdown():
+        typed_val = (st.session_state.get('place_input') or '').strip()
+        if not typed_val:
+            return
+        api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
+        _cands = search_places(typed_val, api_key, limit=6)
+        _opts = [c[0] for c in _cands]
+        # Show dropdown only if no comma in typed text and there are multiple *city* options
+        if (',' not in typed_val) and len(_opts) > 1:
+            render_label('Select Place (City, State, Country)', False)
+            st.selectbox('', _opts, key='pob_choice_inline', on_change=_apply_pob_choice_inline)
     _render_inline_pob_dropdown()
-    # Show dropdown only if no comma in typed text and there are multiple *city* options
-    if (',' not in typed_val) and len(_opts) > 1:
-        render_label('Select Place (City, State, Country)', False)
-        st.selectbox('', _opts, key='pob_choice_inline', on_change=_apply_pob_choice_inline)
-_render_inline_pob_dropdown()
-typed_val = (st.session_state.get('place_input') or '').strip()
-if typed_val:
-    api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
-    _cands = search_places(typed_val, api_key, limit=6)
-    _opts = [c[0] for c in _cands]
-    # Show dropdown only if no comma in typed text and there are multiple options
-    if (',' not in typed_val) and len(_opts) > 1:
-        render_label('Select Place (City, State, Country)', False)
-        st.selectbox('', _opts, key='pob_choice_inline', on_change=_apply_pob_choice_inline)
 # Clear previous generation if any field changes
 current_form_values = {
     'name': st.session_state.get('name_input', '').strip(),
@@ -3114,7 +3093,7 @@ if can_generate:
             pass
 
         # ===== EXACT LAYOUT MATCH: Top section with Personal Details (left) + MRIDAASTRO (right) =====
-        
+
         # --- Clean up template brand/tagline to avoid duplicates (only clears exact matches) ---
         try:
             _brand_keys = [
@@ -3301,8 +3280,8 @@ if can_generate:
                     tcBorders.append(el)
                 tcPr.append(tcBorders)
 
-            
-            
+
+
             # RIGHT CELL: Inject brand so it's side-by-side with Personal Details
             right_cell = header_table.rows[0].cells[1]
             right_cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
@@ -3708,3 +3687,4 @@ if (st.session_state.get('kundali_doc')
 
 if __name__ == '__main__':
     main()
+
