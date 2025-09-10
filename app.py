@@ -1006,94 +1006,136 @@ def kp_sublord(lon_sid):
 
 def geocode(place, api_key):
     """
-    Strict geocoding with validation:
-    - Requires City, optional State, Country (comma separated).
-    - Accepts Geoapify results only when the city/town/village matches the typed city (case/diacritic-insensitive),
-      and when state/country match if provided.
-    Returns: (lat, lon, formatted_string)
-    Raises: RuntimeError("Place not found.") when validation fails.
+    Geocode a free-text place string -> (lat, lon, display_name).
+    Tries Geoapify (if key present), otherwise falls back to OpenStreetMap Nominatim.
     """
-    import re, json, urllib.parse, urllib.request
-    if not api_key:
-        raise RuntimeError("Place not found.")
-    raw = (place or "").strip()
-    parts = [p.strip() for p in raw.split(",") if p.strip()]
-    if not parts:
-        raise RuntimeError("Place not found.")
-    typed_city = parts[0]
-    typed_state = parts[1] if len(parts) >= 2 else ""
-    typed_country = parts[-1] if len(parts) >= 3 else (parts[1] if len(parts) == 2 else "")
+    place = (place or "").strip()
+    if not place:
+        raise RuntimeError("Place is empty.")
 
-    def _norm(s):
-        s = (s or "").lower()
-        return re.sub(r"[^a-z]", "", s)
+    # First: Geoapify (if key exists)
+    if api_key:
+        base = "https://api.geoapify.com/v1/geocode/search?"
+        q = urllib.parse.urlencode({
+            "text": place,
+            "format": "json",
+            "limit": 1,
+            "apiKey": api_key
+        })
+        with urllib.request.urlopen(base + q, timeout=15) as r:
+            j = json.loads(r.read().decode())
+        if j.get("results"):
+            res = j["results"][0]
+            return float(res["lat"]), float(res["lon"]), res.get("formatted", place)
 
-    base = "https://api.geoapify.com/v1/geocode/search?"
-    q = urllib.parse.urlencode({"text": raw, "format": "json", "limit": 1, "apiKey": api_key})
-    with urllib.request.urlopen(base + q, timeout=15) as r:
+    # Fallback: Nominatim (no API key needed)
+    nom_base = "https://nominatim.openstreetmap.org/search?"
+    q = urllib.parse.urlencode({
+        "q": place,
+        "format": "json",
+        "limit": 1,
+        "addressdetails": 1
+    })
+    req = urllib.request.Request(nom_base + q, headers={"User-Agent": "MRIDAASTRO/1.0"})
+    with urllib.request.urlopen(req, timeout=20) as r:
         j = json.loads(r.read().decode())
+    if j:
+        item = j[0]
+        disp = item.get("display_name") or place
+        return float(item["lat"]), float(item["lon"]), disp
 
-    if not j.get("results"):
-        raise RuntimeError("Place not found.")
+    raise RuntimeError("Place not found.")
 
-    res = j["results"][0]
-    city_res = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or res.get("county") or ""
-    state_res = res.get("state") or ""
-    country_res = res.get("country") or ""
 
-    if _norm(city_res) != _norm(typed_city):
-        fmt = res.get("formatted", "")
-        import re as _re
-        pat = r"\b" + _re.escape(typed_city.strip()) + r"\b"
-        if not _re.search(pat, fmt, flags=_re.IGNORECASE):
-            raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+def search_places(query_text, api_key, limit=6):
+    """
+    Return a list of candidates [(display, lat, lon)] for the typed query.
+    Uses Geoapify if api_key available; else falls back to Nominatim.
+    """
+    query_text = (query_text or "").strip()
+    if not query_text:
+        return []
 
-    if typed_state and _norm(state_res) != _norm(typed_state):
-        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+    results = []
+    try:
+        if api_key:
+            base = "https://api.geoapify.com/v1/geocode/search?"
+            params = urllib.parse.urlencode({
+                "text": query_text,
+                "format": "json",
+                "limit": limit,
+                "apiKey": api_key
+            })
+            with urllib.request.urlopen(base + params, timeout=15) as r:
+                j = json.loads(r.read().decode())
+            for it in j.get("results", []):
+                disp = it.get("formatted") or it.get("name") or query_text
+                lat = float(it["lat"])
+                lon = float(it["lon"])
+                results.append((disp, lat, lon))
+        # Fallback or additional
+        if not results:
+            nom_base = "https://nominatim.openstreetmap.org/search?"
+            params = urllib.parse.urlencode({
+                "q": query_text,
+                "format": "json",
+                "limit": limit,
+                "addressdetails": 1
+            })
+            req = urllib.request.Request(nom_base + params, headers={"User-Agent": "MRIDAASTRO/1.0"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                j = json.loads(r.read().decode())
+            for it in j:
+                disp = it.get("display_name") or query_text
+                lat = float(it["lat"])
+                lon = float(it["lon"])
+                results.append((disp, lat, lon))
+    except Exception as e:
+        # silent fail -> empty list
+        results = []
+    # Deduplicate by display string while preserving order
+    seen = set()
+    uniq = []
+    for disp, lat, lon in results:
+        if disp not in seen:
+            seen.add(disp)
+            uniq.append((disp, lat, lon))
+    return uniq
 
-    if typed_country and _norm(country_res) not in (_norm(typed_country), "bharat", "hindustan", "india"):
-        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
 
-    lat = float(res["lat"]); lon = float(res["lon"])
-    return lat, lon, res.get("formatted", raw)
+
+
+
 
 def get_timezone_offset_simple(lat, lon):
-    """Simple timezone offset calculation for auto-population using hardcoded values"""
+    """
+    Return the correct UTC offset (in hours, may be fractional) for the *birth* local datetime.
+    Uses TimezoneFinder to resolve tz name and pytz to compute DST-aware offset.
+    Falls back to 0.0 if anything goes wrong.
+    """
     try:
         tf = TimezoneFinder()
-        tzname = tf.timezone_at(lat=lat, lng=lon)
+        tzname = tf.timezone_at(lat=lat, lng=lon) or "Etc/UTC"
 
-        # Hardcoded timezone offsets to avoid pytz issues
-        timezone_offsets = {
-            'Asia/Kolkata': 5.5,  # India
-            'Asia/Dubai': 4.0,  # UAE
-            'Asia/Karachi': 5.0,  # Pakistan
-            'Asia/Dhaka': 6.0,  # Bangladesh
-            'Asia/Kathmandu': 5.75,  # Nepal
-            'Asia/Colombo': 5.5,  # Sri Lanka
-            'America/New_York': -5.0,  # EST (US East)
-            'America/Chicago': -6.0,  # CST (US Central)
-            'America/Denver': -7.0,  # MST (US Mountain)
-            'America/Los_Angeles': -8.0,  # PST (US West)
-            'Europe/London': 0.0,  # GMT (UK)
-            'Europe/Paris': 1.0,  # CET (France, Germany, etc.)
-            'Europe/Moscow': 3.0,  # MSK (Russia)
-            'Asia/Tokyo': 9.0,  # JST (Japan)
-            'Asia/Shanghai': 8.0,  # CST (China)
-            'Australia/Sydney': 10.0,  # AEST (Australia East)
-            'Australia/Perth': 8.0,  # AWST (Australia West)
-            'Africa/Johannesburg': 2.0,  # SAST (South Africa)
-            'America/Sao_Paulo': -3.0,  # BRT (Brazil)
-            'America/Mexico_City': -6.0,  # CST (Mexico)
-            'America/Toronto': -5.0,  # EST (Canada)
-        }
+        # Build local (naive) datetime from form inputs; default to today's 12:00 if missing
+        dob = st.session_state.get('dob_input')
+        tob = st.session_state.get('tob_input')
+        import datetime
+        if not dob:
+            dob = datetime.date.today()
+        if not tob:
+            tob = datetime.time(12, 0)
 
-        if tzname in timezone_offsets:
-            offset = timezone_offsets[tzname]
-            return offset
-        else:
-            print(f"DEBUG: Unknown timezone {tzname}, defaulting to 0.0")
-            return 0.0
+        dt_local = datetime.datetime(dob.year, dob.month, dob.day, tob.hour, tob.minute, 0)
+
+        tz = pytz.timezone(tzname)
+        aware = tz.localize(dt_local, is_dst=None)
+        offset_hours = tz.utcoffset(aware).total_seconds() / 3600.0
+        return offset_hours
+    except Exception as e:
+        print(f"DEBUG: get_timezone_offset_simple fallback due to: {e}")
+        return 0.0
+
 
     except Exception as e:
         print(f"DEBUG: Timezone detection failed: {e}")
@@ -1196,140 +1238,6 @@ def positions_table_no_symbol(sidelons):
         rows.append([HN[code], sign, deg_str, HN[nak_lord], HN[sub_lord]])
     return pd.DataFrame(
         rows, columns=["ग्रह", "राशि", "अंश", "नक्षत्र", "उप‑नक्षत्र"])
-
-
-# --------- Chalit (Sripati/Porphyry) helpers ---------
-RASHI_NAMES_EN = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpion","Sagittarius","Capricorn","Aquarius","Pisces"]
-
-def _dms_signwise_str(x: float) -> str:
-    # Return DD.MM.SS within sign for a longitude in degrees.
-    d = x % 30.0
-    D = int(d)
-    mfloat = (d - D) * 60.0
-    M = int(mfloat)
-    S = int(round((mfloat - M) * 60.0))
-    if S == 60:
-        S = 0
-        M += 1
-    if M == 60:
-        M = 0
-        D += 1
-    if D >= 30:  # clamp
-        D, M, S = 29, 59, 59
-    return f"{D:02d}.{M:02d}.{S:02d}"
-
-def _sign_name_from_lon(lon: float) -> str:
-    return RASHI_NAMES_EN[int((lon % 360)//30)]
-
-
-def compute_chalit_sripati_df(jd: float, lat: float, lon: float):
-    # Compute Bhava Chalit (Sripati/Porphyry) in sidereal Lahiri,
-    # using **tropical Porphyry cusps** minus ayanamsa, with rounding BEFORE midpoints.
-    import pandas as _pd
-    set_sidereal_locked()
-    # 1) Tropical Porphyry cusps
-    cusps_trop, _asc = swe.houses_ex(jd, lat, lon, b'O')
-    # 2) Ayanamsa at this JD (Lahiri as set above)
-    try:
-        ay = swe.get_ayanamsa_ut(jd)
-    except Exception:
-        ay = swe.get_ayanamsa_ex(jd, 0)[0]
-    # 3) Convert to sidereal & round to nearest arc-second
-    sid_cusps = []
-    for v in cusps_trop:
-        sid = (v - ay) % 360.0
-        sid = round(sid * 3600.0) / 3600.0  # round BEFORE midpoints
-        sid_cusps.append(sid)
-    # 4) Compute begins as midpoint(prev -> this) along CCW arc, then round
-    rows = []
-    for i in range(12):
-        prev_cusp = sid_cusps[(i - 1) % 12]
-        this_cusp = sid_cusps[i]
-        # arc length CCW
-        arc = (this_cusp - prev_cusp) % 360.0
-        begin = (prev_cusp + arc/2.0) % 360.0
-        begin = round(begin * 3600.0) / 3600.0  # round after midpoint as well
-        rows.append([
-            i + 1,
-            _sign_name_from_lon(begin),
-            _dms_signwise_str(begin),
-            _sign_name_from_lon(this_cusp),
-            _dms_signwise_str(this_cusp),
-        ])
-    return _pd.DataFrame(rows, columns=["Bhav", "Rashi", "BhavBegin", "RashiMid", "MidBhav"])
-# --------- End Chalit helpers ---------
-
-# --------- Chalit numeric helpers (arrays & mapping) ---------
-def _norm360(x: float) -> float:
-    x = x % 360.0
-    return x if x >= 0 else x + 360.0
-
-def _is_between_ccw(x: float, start: float, end: float) -> bool:
-    x = _norm360(x); start = _norm360(start); end = _norm360(end)
-    if start <= end:
-        return start <= x < end
-    return x >= start or x < end
-
-def compute_chalit_cusps_arrays(jd: float, lat: float, lon: float):
-    """
-    Return (begins_sid[1..12], mids_sid[1..12]) as 1-based lists of floats (degrees 0..360).
-    Uses tropical Porphyry cusps -> minus ayanamsa, rounded to arc-second.
-    'begin' is midpoint(prev cusp -> this cusp) along CCW arc.
-    """
-    try:
-        cusps_trop, _ = swe.houses_ex(jd, lat, lon, b'O')
-    except TypeError:
-        cusps_trop, _ = swe.houses_ex(jd, lat, lon, b'O', 0)
-    try:
-        ay = swe.get_ayanamsa_ut(jd)
-    except Exception:
-        ay = swe.get_ayanamsa_ex(jd, 0)[0]
-
-    cusps_sid = [None]  # 1-based
-    for i in range(12):
-        v = (cusps_trop[i] - ay) % 360.0
-        v = round(v * 3600.0) / 3600.0
-        cusps_sid.append(v)
-
-    begins_sid = [None]
-    mids_sid = [None]
-    for i in range(1, 13):
-        prev_cusp = cusps_sid[12] if i == 1 else cusps_sid[i-1]
-        this_cusp = cusps_sid[i]
-        arc = (this_cusp - prev_cusp) % 360.0
-        begin = (prev_cusp + arc/2.0) % 360.0
-        begin = round(begin * 3600.0) / 3600.0
-        begins_sid.append(begin)
-        mids_sid.append(this_cusp)
-    return begins_sid, mids_sid
-
-def chalit_house_index_of_lon(lon_sid: float, begins_sid):
-    """Map a sidereal longitude to house index (1..12) using Chalit begins list."""
-    for i in range(1, 13):
-        start = begins_sid[i]
-        end = begins_sid[1] if i == 12 else begins_sid[i+1]
-        if _is_between_ccw(lon_sid, start, end):
-            return i
-    return 12
-
-def build_chalit_house_planets_marked(sidelons, begins_sid):
-    """
-    Build house->planet labels using Chalit houses from 'begins_sid'.
-    Flags (exalt/own/combust/vargottama) are preserved by reusing compute_statuses_all.
-    """
-    house_map = {i: [] for i in range(1, 13)}
-    stats = compute_statuses_all(sidelons)
-    for code in ['Su', 'Mo', 'Ma', 'Me', 'Ju', 'Ve', 'Sa', 'Ra', 'Ke']:
-        h = chalit_house_index_of_lon(sidelons[code], begins_sid)
-        fl = _make_flags('rasi', stats[code])
-        label = fmt_planet_label(code, fl)
-        house_map[h].append({'txt': label, 'flags': fl})
-    return house_map
-# --------- End numeric helpers ---------
-
-
-
-
 
 
 ORDER = ['Ke', 'Ve', 'Su', 'Mo', 'Ma', 'Ra', 'Ju', 'Sa', 'Me']
@@ -2736,30 +2644,68 @@ if form_changed and last_form_values:  # Don't clear on first load
 # Update last values
 st.session_state['last_form_values'] = current_form_values
 
-
 # Auto-populate UTC offset when place changes
-place_input_val = (st.session_state.get('place_input', '') or '').strip()
-# If the user has changed the place text since our last successful geocode, immediately clear UTC
-if place_input_val != st.session_state.get('last_place_checked', ''):
-    st.session_state['tz_input'] = ''
-    st.session_state.pop('tz_error_msg', None)
-    # Also clear last_place_checked so returning to the same valid place re-triggers geocoding
-    st.session_state['last_place_checked'] = ''
 
-if place_input_val and (place_input_val != st.session_state.get('last_place_checked', '') or not (st.session_state.get('tz_input') or '').strip()):
+
+# --- Place handling with suggestions ---
+place_input_val = (st.session_state.get('place_input', '') or '').strip()
+api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
+
+# Helper: decide if a display string is "City, State, Country" (>=3 comma-separated parts)
+def _has_city_state_country(display_str: str) -> bool:
+    parts = [p.strip() for p in (display_str or "").split(",")]
+    return len([p for p in parts if p]) >= 3
+
+if place_input_val and place_input_val != st.session_state.get('last_place_checked', ''):
     try:
-        api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
-        if api_key:
-            lat, lon, disp = geocode(place_input_val, api_key)  # strict validation
-            offset_hours = get_timezone_offset_simple(lat, lon)
-            st.session_state['tz_input'] = str(offset_hours)
+        # If user typed only a city (no comma), show suggestions; if unique, auto-complete.
+        typed_has_commas = ("," in place_input_val)
+        candidates = search_places(place_input_val, api_key, limit=6)
+        if not candidates:
+            # Clear any previous coords/state
+            st.session_state.pop('pob_lat', None)
+            st.session_state.pop('pob_lon', None)
+            st.session_state.pop('pob_display', None)
             st.session_state['last_place_checked'] = place_input_val
-            st.session_state.pop('tz_error_msg', None)
-            st.rerun()
-    except Exception as e:
-        st.session_state['tz_error_msg'] = str(e)
-        # Keep tz blank when invalid
-        st.session_state['tz_input'] = ''
+        else:
+            # Build display list
+            options = [c[0] for c in candidates]
+            if (not typed_has_commas) and len(options) == 1:
+                # Single match -> auto-complete to full display and set coords
+                disp, lat, lon = candidates[0]
+                st.session_state['place_input'] = disp
+                st.session_state['pob_display'] = disp
+                st.session_state['pob_lat'] = lat
+                st.session_state['pob_lon'] = lon
+                st.session_state['last_place_checked'] = disp
+                st.session_state.pop('pob_choice', None)
+                st.rerun()
+            else:
+                # Multiple matches (or user already typed commas) -> present selectbox.
+                render_label('Select Place (City, State, Country)', False)
+                default_idx = 0
+                if st.session_state.get('pob_display') in options:
+                    default_idx = options.index(st.session_state['pob_display'])
+                choice = st.selectbox('', options, index=default_idx if default_idx < len(options) else 0, key='pob_choice')
+                if choice:
+                    # Find chosen tuple
+                    match = next((c for c in candidates if c[0] == choice), None)
+                    if match:
+                        disp, lat, lon = match
+                        st.session_state['pob_display'] = disp
+                        st.session_state['pob_lat'] = lat
+                        st.session_state['pob_lon'] = lon
+                        # Keep the visible text field in sync if user had typed raw city
+                        if not typed_has_commas:
+                            st.session_state['place_input'] = disp
+                        st.session_state['last_place_checked'] = place_input_val
+    except Exception:
+        # On any error, clear coords to avoid wrong UTC
+        st.session_state.pop('pob_lat', None)
+        st.session_state.pop('pob_lon', None)
+        st.session_state.pop('pob_display', None)
+        st.session_state['last_place_checked'] = place_input_val
+        pass
 
 # Row 2: Date of Birth, Time of Birth, and UTC offset override
 row2c1, row2c2, row2c3 = st.columns(3)
@@ -2786,43 +2732,37 @@ with row2c2:
                         key="tob_input",
                         label_visibility="collapsed",
                         step=datetime.timedelta(minutes=1))
+
+
 with row2c3:
-    tz_val = (st.session_state.get('tz_input', '') or '').strip()
     place_val = (st.session_state.get('place_input', '') or '').strip()
-    tz_err = (st.session_state.get('submitted')
-              or st.session_state.get('generate_clicked')) and (not tz_val)
+    pob_disp = (st.session_state.get('pob_display', '') or '').strip()
+    dob_val = st.session_state.get('dob_input')
+    tob_val = st.session_state.get('tob_input')
 
-    # Check if field was auto-populated (has value and place was checked)
-    is_auto_populated = bool(
-        tz_val and st.session_state.get('last_place_checked', ''))
+    # Show label depending on readiness
+    ready_for_utc = bool(pob_disp) and _has_city_state_country(pob_disp) and bool(dob_val) and bool(tob_val)
 
-    # Always disable UTC field until place is entered (force proper workflow)
-    should_disable = not place_val or is_auto_populated
+    if ready_for_utc and ('pob_lat' in st.session_state) and ('pob_lon' in st.session_state):
+        try:
+            offset_hours = get_timezone_offset_simple(st.session_state['pob_lat'], st.session_state['pob_lon'])
+            sign = '+' if offset_hours >= 0 else '-'
+            total_minutes = int(round(abs(offset_hours) * 60))
+            hh, mm = divmod(total_minutes, 60)
+            formatted = f"{sign}{hh:02d}:{mm:02d}"
+            st.session_state['tz_input'] = formatted
+        except Exception:
+            # leave previous value if any
+            pass
 
-    if is_auto_populated:
-        render_label(
-            'UTC offset (auto-detected) <span style="color:green">✓</span>',
-            False)
-    elif not place_val:
-        render_label('UTC offset (enter Place of Birth first)', False)
+    computed_tz = st.session_state.get('tz_input', '')
+    if computed_tz:
+        render_label('UTC offset (auto-detected)', False)
     else:
-        # Auto-detection failed, field is editable but still required
-        render_label(
-            'UTC offset (manual entry required) <span style="color:red">*</span>',
-            tz_err)
+        render_label('UTC offset (auto-detected; requires City, State, Country + DOB + TOB)', not ready_for_utc)
 
-    tz_override = st.text_input("UTC Offset",
-                                key="tz_input",
-                                label_visibility="collapsed",
-                                disabled=should_disable)
+    st.text_input("UTC (auto)", value=computed_tz, key="tz_input", label_visibility="collapsed", disabled=True)
 
-st.write("")
-# === End reorganized form layout ===
-
-api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
-
-# Center the Generate Kundali button
-col1, col2, col3 = st.columns([1, 1, 1])
 with col2:
     generate_clicked = st.button("Generate Kundali", key="gen_btn")
     if generate_clicked:
@@ -2915,19 +2855,6 @@ if can_generate:
         nav_lagna_sign = navamsa_sign_from_lon_sid(asc_sid)
 
         df_positions = positions_table_no_symbol(sidelons)
-
-        # Compute Chalit (Sripati/Porphyry) table (sidereal, Lahiri)
-        df_chalit = compute_chalit_sripati_df(jd, lat, lon)
-        # Optional on-screen preview
-        try:
-            with st.expander("Chalit (Sripati/Porphyry) — Preview", expanded=False):
-                st.dataframe(df_chalit, use_container_width=True)
-
-                # Numeric Chalit cusps for placement
-                begins_sid, mids_sid = compute_chalit_cusps_arrays(jd, lat, lon)
-        except Exception:
-            pass
-
 
         ORDER = ['Ke', 'Ve', 'Su', 'Mo', 'Ma', 'Ra', 'Ju', 'Sa', 'Me']
         YEARS = {
@@ -3430,29 +3357,6 @@ if can_generate:
 
         # Original Mahadasha section
         # h2 = left.add_paragraph("विंशोत्तरी महादशा"); _apply_hindi_caption_style(h2, size_pt=11, underline=True, bold=True); h2.paragraph_format.keep_with_next = True; h2.paragraph_format.space_after = Pt(2)
-        
-        # === CHALIT (Sripati/Porphyry) SECTION ===
-        create_cylindrical_section_header(left, "भव चलित (Sripati)", width_pt=260)
-        t_ch = left.add_table(rows=1, cols=5)
-        t_ch.autofit = False
-        for i, h in enumerate(["Bhav","Rashi","BhavBegin","Rashi","MidBhav"]):
-            t_ch.rows[0].cells[i].text = h
-        for _, row in df_chalit.iterrows():
-            r = t_ch.add_row().cells
-            r[0].text = str(row["Bhav"])
-            r[1].text = str(row["Rashi"])
-            r[2].text = str(row["BhavBegin"])
-            r[3].text = str(row["RashiMid"])
-            r[4].text = str(row["MidBhav"])
-            for c in r:
-                for p in c.paragraphs:
-                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        center_header_row(t_ch)
-        set_table_font(t_ch, pt=BASE_FONT_PT)
-        add_table_borders(t_ch, size=6)
-        apply_premium_table_style(t_ch)
-        set_col_widths(t_ch, [0.60, 1.10, 1.10, 1.00, 1.10])
-
         create_cylindrical_section_header(left,
                                           "विंशोत्तरी महादशा",
                                           width_pt=260)
@@ -3582,8 +3486,8 @@ if can_generate:
                                           line_exact=True)
         hdr_p = cell1.paragraphs[-1]
         # Lagna chart with planets in single box per house
-        rasi_house_planets = build_chalit_house_planets_marked(
-            sidelons, begins_sid)
+        rasi_house_planets = build_rasi_house_planets_marked(
+            sidelons, lagna_sign)
         hdr_p._p.addnext(
             kundali_with_planets(size_pt=CHART_W_PT,
                                  lagna_sign=lagna_sign,
