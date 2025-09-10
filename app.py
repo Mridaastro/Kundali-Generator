@@ -2677,7 +2677,7 @@ with row1c1:
     name = st.text_input("Name",
                          key="name_input",
                          label_visibility="collapsed")
-                with row1c2:
+with row1c2:
     place_val = (st.session_state.get('place_input', '') or '').strip()
     place_err = (st.session_state.get('submitted') or
                  st.session_state.get('generate_clicked')) and (not place_val)
