@@ -11,6 +11,32 @@ from io import BytesIO
 st.set_page_config(page_title="MRIDAASTRO — Kundali", page_icon="🪔", layout="centered")
 st.title("MRIDAASTRO — Kundali Generator")
 
+# optional background
+def _apply_bg():
+    try:
+        import base64
+        from pathlib import Path as _P
+        for p in [ _P("assets/ganesha_bg.png"), _P("assets/login_bg.png"), _P("assets/bg.png") ]:
+            if p.exists():
+                b64 = base64.b64encode(p.read_bytes()).decode()
+                st.markdown(f"""
+                <style>
+                [data-testid="stAppViewContainer"] {{
+                    background: url('data:image/png;base64,{b64}') no-repeat center top fixed;
+                    background-size: cover;
+                }}
+                [data-testid="stHeader"] {{
+                    background: transparent;
+                }}
+                </style>
+                """, unsafe_allow_html=True)
+                break
+    except Exception:
+        pass
+
+_apply_bg()
+
+
 # ============ Secrets / API keys ============
 GEOAPIFY_API_KEY = ""
 try:
@@ -149,7 +175,7 @@ col1, col2 = st.columns(2)
 with col1:
     name = st.text_input("Name", key="name_input", placeholder="Person Name")
 with col2:
-    st.text_input("UTC offset", key=TZ_KEY, help="Auto-detected from Place of Birth", disabled=True)
+    st.text_input("UTC offset", value=st.session_state[TZ_KEY], key="tz_display", help="Auto-detected from Place of Birth", disabled=True)
 
 # ===== Place of Birth (with suggestions) =====
 place_typed = st.text_input("Place of Birth (City, State, Country)", key=PLACE_KEY, placeholder="e.g., Jabalpur, Madhya Pradesh, India").strip()
@@ -168,7 +194,6 @@ def _apply_choice_callback():
             st.session_state[ERR_KEY] = None
         except Exception:
             st.session_state[TZ_KEY] = ""
-        st.rerun()
 
 if GEOAPIFY_API_KEY and need_help:
     suggestions = geocode_suggestions(place_typed, GEOAPIFY_API_KEY, limit=7)
