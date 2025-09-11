@@ -1357,7 +1357,7 @@ def compute_chalit_sripati_df(jd: float, lat: float, lon: float):
     import pandas as _pd
     set_sidereal_locked()
     # 1) Tropical Porphyry cusps
-    cusps_trop, _asc = swe.houses_ex(jd, lat, lon, b'O')
+    cusps_trop, _asc = swe.houses_ex(jd, lat, lon, b'P')
     # 2) Ayanamsa at this JD (Lahiri as set above)
     try:
         ay = swe.get_ayanamsa_ut(jd)
@@ -1414,7 +1414,7 @@ def compute_chalit_cusps_arrays(jd: float, lat: float, lon: float):
     'begin' is midpoint(prev cusp -> this cusp) along CCW arc.
     """
     try:
-        cusps_trop, _ = swe.houses_ex(jd, lat, lon, b'O')
+        cusps_trop, _ = swe.houses_ex(jd, lat, lon, b'P')
     except TypeError:
         cusps_trop, _ = swe.houses_ex(jd, lat, lon, b'O', 0)
     try:
@@ -2878,12 +2878,23 @@ with row1c2:
                 st.session_state['selected_place'] = disp  # Use different key to avoid widget conflict
                 st.session_state['last_place_checked'] = disp
                 # Auto-populate timezone
-                offset_hours = get_timezone_offset_simple(lat, lon)
-                sign = '+' if offset_hours >= 0 else '-'
-                total_minutes = int(round(abs(offset_hours) * 60))
-                hh, mm = divmod(total_minutes, 60)
-                formatted = f"{sign}{hh:02d}:{mm:02d}"
-                st.session_state['tz_input'] = formatted
+                # Compute timezone using coordinates + DOB/TOB (handles DST correctly)
+try:
+    dob_ss = st.session_state.get('dob_input')
+    tob_ss = st.session_state.get('tob_input')
+    if hasattr(dob_ss, 'year') and hasattr(tob_ss, 'hour'):
+        _dt_guess = datetime.datetime(dob_ss.year, dob_ss.month, dob_ss.day, tob_ss.hour, tob_ss.minute, 0)
+    else:
+        _dt_guess = datetime.datetime.utcnow()
+    _tzname, offset_hours, _ = tz_from_latlon(lat, lon, _dt_guess)
+except Exception as _e:
+    print(f"DEBUG: tz_from_latlon failed in dropdown/direct flow: {_e}")
+    offset_hours = 0.0
+sign = '+' if offset_hours >= 0 else '-'
+total_minutes = int(round(abs(offset_hours) * 60))
+hh, mm = divmod(total_minutes, 60)
+formatted = f"{sign}{hh:02d}:{mm:02d}"
+st.session_state['tz_input'] = formatted
                 st.session_state.pop('tz_error_msg', None)
                 st.session_state.pop('place_suggestions', None)  # Clear suggestions
                 print(f"DEBUG: Dropdown selection success for {disp} -> {lat}, {lon}, UTC: {formatted}")
@@ -2937,6 +2948,14 @@ if place_input_val != st.session_state.get('last_place_checked', ''):
     st.session_state.pop('pob_display', None)
     st.session_state['last_place_checked'] = ''
 
+# If field is blank, also clear immediately (covers manual delete)
+if not place_input_val.strip():
+    st.session_state.pop('pob_lat', None)
+    st.session_state.pop('pob_lon', None)
+    st.session_state.pop('pob_display', None)
+    st.session_state['tz_input'] = ''
+
+
 # Enhanced place handling with dropdown for city-only searches
 if place_input_val:
     print(f"DEBUG: Processing place input: '{place_input_val}', API key available: {bool(api_key)}, last_checked: '{st.session_state.get('last_place_checked', '')}'")
@@ -2960,12 +2979,23 @@ if place_input_val:
                     st.session_state['pob_display'] = disp
                     st.session_state['last_place_checked'] = place_input_val
                     # Auto-populate timezone
-                    offset_hours = get_timezone_offset_simple(lat, lon)
-                    sign = '+' if offset_hours >= 0 else '-'
-                    total_minutes = int(round(abs(offset_hours) * 60))
-                    hh, mm = divmod(total_minutes, 60)
-                    formatted = f"{sign}{hh:02d}:{mm:02d}"
-                    st.session_state['tz_input'] = formatted
+                    # Compute timezone using coordinates + DOB/TOB (handles DST correctly)
+try:
+    dob_ss = st.session_state.get('dob_input')
+    tob_ss = st.session_state.get('tob_input')
+    if hasattr(dob_ss, 'year') and hasattr(tob_ss, 'hour'):
+        _dt_guess = datetime.datetime(dob_ss.year, dob_ss.month, dob_ss.day, tob_ss.hour, tob_ss.minute, 0)
+    else:
+        _dt_guess = datetime.datetime.utcnow()
+    _tzname, offset_hours, _ = tz_from_latlon(lat, lon, _dt_guess)
+except Exception as _e:
+    print(f"DEBUG: tz_from_latlon failed in dropdown/direct flow: {_e}")
+    offset_hours = 0.0
+sign = '+' if offset_hours >= 0 else '-'
+total_minutes = int(round(abs(offset_hours) * 60))
+hh, mm = divmod(total_minutes, 60)
+formatted = f"{sign}{hh:02d}:{mm:02d}"
+st.session_state['tz_input'] = formatted
                     st.session_state.pop('tz_error_msg', None)
                     print(f"DEBUG: Direct geocoding success for {place_input_val} -> {lat}, {lon}, UTC: {formatted}")
                     st.rerun()  # Force rerun to update UI immediately
