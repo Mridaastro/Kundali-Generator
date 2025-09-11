@@ -2652,6 +2652,7 @@ if place_input_val and place_input_val != committed_val:
         pass
 
 # Row 2: Date of Birth, Time of Birth, and UTC offset override
+row2c1, row2c2, row2c3 = st.columns(3)
 with row2c1:
 
     # Check validation using current session state (widget will update it)
