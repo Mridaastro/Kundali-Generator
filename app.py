@@ -219,17 +219,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytz
 import streamlit as st
-
-# === POB pending-commit apply (before widgets render) — DO NOT compute UTC here ===
-if 'pob_pending_commit' in st.session_state:
-    _p = st.session_state.pop('pob_pending_commit')
-    st.session_state['place_input'] = _p.get('display', '')
-    st.session_state['pob_display'] = _p.get('display')
-    st.session_state['pob_lat'] = _p.get('lat')
-    st.session_state['pob_lon'] = _p.get('lon')
-    st.session_state['last_place_checked'] = _p.get('display', '')
-# === end pending-commit ===
-
 # === App background helper (for authenticated pages) ===
 import base64, os, streamlit as st
 
@@ -1014,90 +1003,102 @@ def kp_sublord(lon_sid):
     return lord, seq[-1]
 
 
+
 def geocode(place, api_key):
+    """
+    Strict geocoding with validation:
+    - Requires City, optional State, Country (comma separated).
+    - Accepts Geoapify results only when the city/town/village matches the typed city (case/diacritic-insensitive),
+      and when state/country match if provided.
+    Returns: (lat, lon, formatted_string)
+    Raises: RuntimeError("Place not found.") when validation fails.
+    """
+    import re, json, urllib.parse, urllib.request
     if not api_key:
-        raise RuntimeError(
-            "Geoapify key missing. Add GEOAPIFY_API_KEY in Secrets.")
+        raise RuntimeError("Place not found.")
+    raw = (place or "").strip()
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if not parts:
+        raise RuntimeError("Place not found.")
+    typed_city = parts[0]
+    typed_state = parts[1] if len(parts) >= 2 else ""
+    typed_country = parts[-1] if len(parts) >= 3 else (parts[1] if len(parts) == 2 else "")
+
+    def _norm(s):
+        s = (s or "").lower()
+        return re.sub(r"[^a-z]", "", s)
+
     base = "https://api.geoapify.com/v1/geocode/search?"
-    q = urllib.parse.urlencode({
-        "text": place,
-        "format": "json",
-        "limit": 1,
-        "apiKey": api_key
-    })
+    q = urllib.parse.urlencode({"text": raw, "format": "json", "limit": 1, "apiKey": api_key})
     with urllib.request.urlopen(base + q, timeout=15) as r:
         j = json.loads(r.read().decode())
-    if j.get("results"):
-        res = j["results"][0]
-        return float(res["lat"]), float(res["lon"]), res.get(
-            "formatted", place)
-    raise RuntimeError("Place not found.")
 
+    if not j.get("results"):
+        raise RuntimeError("Place not found.")
 
-def search_places(query: str, api_key: str, limit: int = 6):
-    """Return list[(display, lat, lon)] using Geoapify Autocomplete."""
-    if not query or not api_key:
-        return []
-    import urllib.parse, requests
-    url = ("https://api.geoapify.com/v1/geocode/autocomplete?" +
-           urllib.parse.urlencode({"text": query, "format": "json", "limit": limit, "apiKey": api_key}))
-    try:
-        r = requests.get(url, timeout=8)
-        if r.status_code != 200:
-            return []
-        data = r.json()
-        out = []
-        for feat in data.get("results", []):
-            lat = feat.get("lat"); lon = feat.get("lon")
-            city = feat.get("city") or feat.get("name") or feat.get("town") or feat.get("state_district")
-            state = feat.get("state") or feat.get("county")
-            country = feat.get("country")
-            disp = ", ".join([p for p in [city, state, country] if p])
-            if disp and isinstance(lat,(int,float)) and isinstance(lon,(int,float)):
-                if len([p for p in disp.split(",") if p.strip()]) >= 3:
-                    out.append((disp, float(lat), float(lon)))
-        seen=set(); uniq=[]
-        for disp, la, lo in out:
-            if disp not in seen:
-                seen.add(disp); uniq.append((disp, la, lo))
-        return uniq[:limit]
-    except Exception:
-        return []
+    res = j["results"][0]
+    city_res = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or res.get("county") or ""
+    state_res = res.get("state") or ""
+    country_res = res.get("country") or ""
 
+    if _norm(city_res) != _norm(typed_city):
+        fmt = res.get("formatted", "")
+        import re as _re
+        pat = r"\b" + _re.escape(typed_city.strip()) + r"\b"
+        if not _re.search(pat, fmt, flags=_re.IGNORECASE):
+            raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
 
+    if typed_state and _norm(state_res) != _norm(typed_state):
+        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+
+    if typed_country and _norm(country_res) not in (_norm(typed_country), "bharat", "hindustan", "india"):
+        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+
+    lat = float(res["lat"]); lon = float(res["lon"])
+    return lat, lon, res.get("formatted", raw)
 
 def get_timezone_offset_simple(lat, lon):
-    """Return current UTC offset (in hours) for lat/lon using TimezoneFinder.
-    This is used only to auto-fill the UI; historical/DST correctness is handled later.
-    """
+    """Simple timezone offset calculation for auto-population using hardcoded values"""
     try:
         tf = TimezoneFinder()
-        tzname = tf.timezone_at(lat=lat, lng=lon) or "Etc/UTC"
-        # Hardcoded quick wins first
+        tzname = tf.timezone_at(lat=lat, lng=lon)
+
+        # Hardcoded timezone offsets to avoid pytz issues
         timezone_offsets = {
-            'Asia/Kolkata': 5.5,
-            'Asia/Calcutta': 5.5,
+            'Asia/Kolkata': 5.5,  # India
+            'Asia/Dubai': 4.0,  # UAE
+            'Asia/Karachi': 5.0,  # Pakistan
+            'Asia/Dhaka': 6.0,  # Bangladesh
+            'Asia/Kathmandu': 5.75,  # Nepal
+            'Asia/Colombo': 5.5,  # Sri Lanka
+            'America/New_York': -5.0,  # EST (US East)
+            'America/Chicago': -6.0,  # CST (US Central)
+            'America/Denver': -7.0,  # MST (US Mountain)
+            'America/Los_Angeles': -8.0,  # PST (US West)
+            'Europe/London': 0.0,  # GMT (UK)
+            'Europe/Paris': 1.0,  # CET (France, Germany, etc.)
+            'Europe/Moscow': 3.0,  # MSK (Russia)
+            'Asia/Tokyo': 9.0,  # JST (Japan)
+            'Asia/Shanghai': 8.0,  # CST (China)
+            'Australia/Sydney': 10.0,  # AEST (Australia East)
+            'Australia/Perth': 8.0,  # AWST (Australia West)
+            'Africa/Johannesburg': 2.0,  # SAST (South Africa)
+            'America/Sao_Paulo': -3.0,  # BRT (Brazil)
+            'America/Mexico_City': -6.0,  # CST (Mexico)
+            'America/Toronto': -5.0,  # EST (Canada)
         }
+
         if tzname in timezone_offsets:
-            return timezone_offsets[tzname]
-        # Fallback to pytz for other zones
-        import pytz, datetime as _dt
-        tz = pytz.timezone(tzname)
-        now_local = tz.localize(_dt.datetime.now().replace(second=0, microsecond=0), is_dst=None)
-        return tz.utcoffset(now_local).total_seconds() / 3600.0
-    except Exception:
+            offset = timezone_offsets[tzname]
+            return offset
+        else:
+            print(f"DEBUG: Unknown timezone {tzname}, defaulting to 0.0")
+            return 0.0
+
+    except Exception as e:
+        print(f"DEBUG: Timezone detection failed: {e}")
         return 0.0
 
-
-def _tz_to_hours(tz_str: str) -> float:
-    s = (tz_str or "").strip()
-    if not s:
-        raise ValueError("empty tz")
-    if ":" in s:
-        sign = -1.0 if s.startswith("-") else 1.0
-        hh, mm = s.lstrip("+-").split(":", 1)
-        return sign * (int(hh) + int(mm)/60.0)
-    return float(s)
 
 def tz_from_latlon(lat, lon, dt_local):
     tf = TimezoneFinder()
@@ -1195,6 +1196,140 @@ def positions_table_no_symbol(sidelons):
         rows.append([HN[code], sign, deg_str, HN[nak_lord], HN[sub_lord]])
     return pd.DataFrame(
         rows, columns=["ग्रह", "राशि", "अंश", "नक्षत्र", "उप‑नक्षत्र"])
+
+
+# --------- Chalit (Sripati/Porphyry) helpers ---------
+RASHI_NAMES_EN = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpion","Sagittarius","Capricorn","Aquarius","Pisces"]
+
+def _dms_signwise_str(x: float) -> str:
+    # Return DD.MM.SS within sign for a longitude in degrees.
+    d = x % 30.0
+    D = int(d)
+    mfloat = (d - D) * 60.0
+    M = int(mfloat)
+    S = int(round((mfloat - M) * 60.0))
+    if S == 60:
+        S = 0
+        M += 1
+    if M == 60:
+        M = 0
+        D += 1
+    if D >= 30:  # clamp
+        D, M, S = 29, 59, 59
+    return f"{D:02d}.{M:02d}.{S:02d}"
+
+def _sign_name_from_lon(lon: float) -> str:
+    return RASHI_NAMES_EN[int((lon % 360)//30)]
+
+
+def compute_chalit_sripati_df(jd: float, lat: float, lon: float):
+    # Compute Bhava Chalit (Sripati/Porphyry) in sidereal Lahiri,
+    # using **tropical Porphyry cusps** minus ayanamsa, with rounding BEFORE midpoints.
+    import pandas as _pd
+    set_sidereal_locked()
+    # 1) Tropical Porphyry cusps
+    cusps_trop, _asc = swe.houses_ex(jd, lat, lon, b'O')
+    # 2) Ayanamsa at this JD (Lahiri as set above)
+    try:
+        ay = swe.get_ayanamsa_ut(jd)
+    except Exception:
+        ay = swe.get_ayanamsa_ex(jd, 0)[0]
+    # 3) Convert to sidereal & round to nearest arc-second
+    sid_cusps = []
+    for v in cusps_trop:
+        sid = (v - ay) % 360.0
+        sid = round(sid * 3600.0) / 3600.0  # round BEFORE midpoints
+        sid_cusps.append(sid)
+    # 4) Compute begins as midpoint(prev -> this) along CCW arc, then round
+    rows = []
+    for i in range(12):
+        prev_cusp = sid_cusps[(i - 1) % 12]
+        this_cusp = sid_cusps[i]
+        # arc length CCW
+        arc = (this_cusp - prev_cusp) % 360.0
+        begin = (prev_cusp + arc/2.0) % 360.0
+        begin = round(begin * 3600.0) / 3600.0  # round after midpoint as well
+        rows.append([
+            i + 1,
+            _sign_name_from_lon(begin),
+            _dms_signwise_str(begin),
+            _sign_name_from_lon(this_cusp),
+            _dms_signwise_str(this_cusp),
+        ])
+    return _pd.DataFrame(rows, columns=["Bhav", "Rashi", "BhavBegin", "RashiMid", "MidBhav"])
+# --------- End Chalit helpers ---------
+
+# --------- Chalit numeric helpers (arrays & mapping) ---------
+def _norm360(x: float) -> float:
+    x = x % 360.0
+    return x if x >= 0 else x + 360.0
+
+def _is_between_ccw(x: float, start: float, end: float) -> bool:
+    x = _norm360(x); start = _norm360(start); end = _norm360(end)
+    if start <= end:
+        return start <= x < end
+    return x >= start or x < end
+
+def compute_chalit_cusps_arrays(jd: float, lat: float, lon: float):
+    """
+    Return (begins_sid[1..12], mids_sid[1..12]) as 1-based lists of floats (degrees 0..360).
+    Uses tropical Porphyry cusps -> minus ayanamsa, rounded to arc-second.
+    'begin' is midpoint(prev cusp -> this cusp) along CCW arc.
+    """
+    try:
+        cusps_trop, _ = swe.houses_ex(jd, lat, lon, b'O')
+    except TypeError:
+        cusps_trop, _ = swe.houses_ex(jd, lat, lon, b'O', 0)
+    try:
+        ay = swe.get_ayanamsa_ut(jd)
+    except Exception:
+        ay = swe.get_ayanamsa_ex(jd, 0)[0]
+
+    cusps_sid = [None]  # 1-based
+    for i in range(12):
+        v = (cusps_trop[i] - ay) % 360.0
+        v = round(v * 3600.0) / 3600.0
+        cusps_sid.append(v)
+
+    begins_sid = [None]
+    mids_sid = [None]
+    for i in range(1, 13):
+        prev_cusp = cusps_sid[12] if i == 1 else cusps_sid[i-1]
+        this_cusp = cusps_sid[i]
+        arc = (this_cusp - prev_cusp) % 360.0
+        begin = (prev_cusp + arc/2.0) % 360.0
+        begin = round(begin * 3600.0) / 3600.0
+        begins_sid.append(begin)
+        mids_sid.append(this_cusp)
+    return begins_sid, mids_sid
+
+def chalit_house_index_of_lon(lon_sid: float, begins_sid):
+    """Map a sidereal longitude to house index (1..12) using Chalit begins list."""
+    for i in range(1, 13):
+        start = begins_sid[i]
+        end = begins_sid[1] if i == 12 else begins_sid[i+1]
+        if _is_between_ccw(lon_sid, start, end):
+            return i
+    return 12
+
+def build_chalit_house_planets_marked(sidelons, begins_sid):
+    """
+    Build house->planet labels using Chalit houses from 'begins_sid'.
+    Flags (exalt/own/combust/vargottama) are preserved by reusing compute_statuses_all.
+    """
+    house_map = {i: [] for i in range(1, 13)}
+    stats = compute_statuses_all(sidelons)
+    for code in ['Su', 'Mo', 'Ma', 'Me', 'Ju', 'Ve', 'Sa', 'Ra', 'Ke']:
+        h = chalit_house_index_of_lon(sidelons[code], begins_sid)
+        fl = _make_flags('rasi', stats[code])
+        label = fmt_planet_label(code, fl)
+        house_map[h].append({'txt': label, 'flags': fl})
+    return house_map
+# --------- End numeric helpers ---------
+
+
+
+
 
 
 ORDER = ['Ke', 'Ve', 'Su', 'Mo', 'Ma', 'Ra', 'Ju', 'Sa', 'Me']
@@ -2602,55 +2737,33 @@ if form_changed and last_form_values:  # Don't clear on first load
 st.session_state['last_form_values'] = current_form_values
 
 
-# POB handling with one-time dropdown + commit (no UTC computation here)
-place_input_val = st.session_state.get('place_input', '').strip()
-committed_val = st.session_state.get('last_place_checked','').strip()
+# Auto-populate UTC offset when place changes
+place_input_val = (st.session_state.get('place_input', '') or '').strip()
+# If the user has changed the place text since our last successful geocode, immediately clear UTC
+if place_input_val != st.session_state.get('last_place_checked', ''):
+    st.session_state['tz_input'] = ''
+    st.session_state.pop('tz_error_msg', None)
+    # Also clear last_place_checked so returning to the same valid place re-triggers geocoding
+    st.session_state['last_place_checked'] = ''
 
-api_key = st.secrets.get("GEOAPIFY_API_KEY","")
-def _commit_place(display, lat, lon):
-    # Defer mutation to next run (widget-safe)
-    st.session_state['pob_pending_commit'] = {'display': display, 'lat': lat, 'lon': lon}
-    st.rerun()
-
-if place_input_val and place_input_val != committed_val:
+if place_input_val and (place_input_val != st.session_state.get('last_place_checked', '') or not (st.session_state.get('tz_input') or '').strip()):
     try:
-        cands = search_places(place_input_val, api_key, limit=6)
-        if cands:
-            if len(cands) == 1:
-                disp, la, lo = cands[0]
-                _commit_place(disp, la, lo)
-            else:
-                st.write("")  # spacer below the POB textbox
-                _options = ["Select from dropdown"] + [c[0] for c in cands]
-                _choice = st.selectbox("Select Place (City, State, Country)",
-                                       _options, index=0, key="pob_choice")
-                if _choice and _choice != "Select from dropdown":
-                    sel = next((c for c in cands if c[0]==_choice), None)
-                    if sel:
-                        disp, la, lo = sel
-                        _commit_place(disp, la, lo)
-    except Exception:
-        pass
-
-# --- Compute UTC now that helpers/imports are loaded ---
-def _hours_to_hhmm(off: float) -> str:
-    sign = '+' if off >= 0 else '-'
-    total = int(round(abs(off) * 60))
-    hh, mm = divmod(total, 60)
-    return f"{sign}{hh:02d}:{mm:02d}"
-
-if st.session_state.get('pob_lat') is not None and st.session_state.get('pob_lon') is not None:
-    try:
-        off = get_timezone_offset_simple(float(st.session_state['pob_lat']),
-                                         float(st.session_state['pob_lon']))
-        st.session_state['tz_input'] = _hours_to_hhmm(off)
-    except Exception:
-        pass
+        api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
+        if api_key:
+            lat, lon, disp = geocode(place_input_val, api_key)  # strict validation
+            offset_hours = get_timezone_offset_simple(lat, lon)
+            st.session_state['tz_input'] = str(offset_hours)
+            st.session_state['last_place_checked'] = place_input_val
+            st.session_state.pop('tz_error_msg', None)
+            st.rerun()
+    except Exception as e:
+        st.session_state['tz_error_msg'] = str(e)
+        # Keep tz blank when invalid
+        st.session_state['tz_input'] = ''
 
 # Row 2: Date of Birth, Time of Birth, and UTC offset override
 row2c1, row2c2, row2c3 = st.columns(3)
 with row2c1:
-
     # Check validation using current session state (widget will update it)
     dob_current = st.session_state.get('dob_input', datetime.date.today())
     dob_err = (st.session_state.get('submitted')
@@ -2709,60 +2822,66 @@ st.write("")
 api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
 
 # Center the Generate Kundali button
-
-# Center the Generate Kundali button
 col1, col2, col3 = st.columns([1, 1, 1])
 with col2:
-    if st.button("Generate Kundali", key="gen_btn"):
-        st.session_state['request_generate'] = True
+    generate_clicked = st.button("Generate Kundali", key="gen_btn")
+    if generate_clicked:
+        st.session_state['generate_clicked'] = True
         st.session_state['submitted'] = True
-        st.rerun()
+        st.rerun()  # Immediate rerun to show validation
 
 # --- Validation gate computed on rerun after click ---
 can_generate = False
-if st.session_state.get('submitted'):
-    _name  = (st.session_state.get('name_input')  or '').strip()
+if generate_clicked or st.session_state.get('submitted'):
+    # Set submitted state for error highlighting
+    st.session_state['submitted'] = True
+
+    # Use session state values (more reliable after rerun)
+    _name = (st.session_state.get('name_input') or '').strip()
     _place = (st.session_state.get('place_input') or '').strip()
-    _tz    = (st.session_state.get('tz_input')    or '').strip()
-    _dob   = st.session_state.get('dob_input', datetime.date.today())
-    _tob   = st.session_state.get('tob_input', datetime.time(12, 0))
+    _tz = (st.session_state.get('tz_input') or '').strip()
+    _dob = st.session_state.get('dob_input',
+                                datetime.date.today())  # Use today as default
+    _tob = st.session_state.get('tob_input',
+                                datetime.time(12, 0))  # Use 12:00 as default
 
     any_err = False
+
+    # Check all required fields
     if not _name or not _place or not _tz or _dob is None or _tob is None:
         any_err = True
     else:
         try:
-            _tzv = _tz_to_hours(_tz)
+            _tzv = float(_tz)
             if _tzv < -12 or _tzv > 14:
                 any_err = True
-        except Exception:
+        except Exception as e:
             any_err = True
 
     if any_err:
-        st.markdown(
-            "<div style='display:flex;justify-content:center;width:100%;"
-            "margin-top:10px'><div style='color:#c1121f;font-weight:700;"
-            "text-align:center;padding:8px 0'>Please fix the highlighted "
-            "fields above.</div></div>",
-            unsafe_allow_html=True,
-        )
-        st.session_state['request_generate'] = False
+        # Error message perfectly centered below the Generate button
+        st.markdown("""<div style='
+                display: flex; 
+                justify-content: center; 
+                width: 100%; 
+                margin-top: 10px;
+            '>
+                <div style='
+                    color: #c1121f; 
+                    font-weight: 700; 
+                    text-align: center;
+                    padding: 8px 0;
+                '>
+                    Please fix the highlighted fields above.
+                </div>
+            </div>""",
+                    unsafe_allow_html=True)
     else:
         can_generate = True
+        # Clear previous generation flag to ensure clean state
         st.session_state['generation_completed'] = False
-# Show download button
 
-# Single, de-duplicated download button
-if 'kundali_doc' in st.session_state and st.session_state['kundali_doc']:
-    st.download_button(
-        "📥  Download Kundali (DOCX)",
-        st.session_state['kundali_doc'],
-        file_name="Kundali.docx",
-        type="primary",
-        key="download_button_main",
-    )
-
-# only if Kundali was generated in this session
+# Show download button only if Kundali was generated in this session
 
 if can_generate:
     # key presence
@@ -2784,7 +2903,7 @@ if can_generate:
         dt_local = datetime.datetime.combine(dob, tob).replace(tzinfo=None)
         used_manual = False
         if tz_override.strip():
-            tz_hours = _tz_to_hours(tz_override)
+            tz_hours = float(tz_override)
             dt_utc = dt_local - datetime.timedelta(hours=tz_hours)
             tzname = f"UTC{tz_hours:+.2f} (manual)"
             used_manual = True
@@ -2796,6 +2915,19 @@ if can_generate:
         nav_lagna_sign = navamsa_sign_from_lon_sid(asc_sid)
 
         df_positions = positions_table_no_symbol(sidelons)
+
+        # Compute Chalit (Sripati/Porphyry) table (sidereal, Lahiri)
+        df_chalit = compute_chalit_sripati_df(jd, lat, lon)
+        # Optional on-screen preview
+        try:
+            with st.expander("Chalit (Sripati/Porphyry) — Preview", expanded=False):
+                st.dataframe(df_chalit, use_container_width=True)
+
+                # Numeric Chalit cusps for placement
+                begins_sid, mids_sid = compute_chalit_cusps_arrays(jd, lat, lon)
+        except Exception:
+            pass
+
 
         ORDER = ['Ke', 'Ve', 'Su', 'Mo', 'Ma', 'Ra', 'Ju', 'Sa', 'Me']
         YEARS = {
@@ -3298,6 +3430,29 @@ if can_generate:
 
         # Original Mahadasha section
         # h2 = left.add_paragraph("विंशोत्तरी महादशा"); _apply_hindi_caption_style(h2, size_pt=11, underline=True, bold=True); h2.paragraph_format.keep_with_next = True; h2.paragraph_format.space_after = Pt(2)
+        
+        # === CHALIT (Sripati/Porphyry) SECTION ===
+        create_cylindrical_section_header(left, "भव चलित (Sripati)", width_pt=260)
+        t_ch = left.add_table(rows=1, cols=5)
+        t_ch.autofit = False
+        for i, h in enumerate(["Bhav","Rashi","BhavBegin","Rashi","MidBhav"]):
+            t_ch.rows[0].cells[i].text = h
+        for _, row in df_chalit.iterrows():
+            r = t_ch.add_row().cells
+            r[0].text = str(row["Bhav"])
+            r[1].text = str(row["Rashi"])
+            r[2].text = str(row["BhavBegin"])
+            r[3].text = str(row["RashiMid"])
+            r[4].text = str(row["MidBhav"])
+            for c in r:
+                for p in c.paragraphs:
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        center_header_row(t_ch)
+        set_table_font(t_ch, pt=BASE_FONT_PT)
+        add_table_borders(t_ch, size=6)
+        apply_premium_table_style(t_ch)
+        set_col_widths(t_ch, [0.60, 1.10, 1.10, 1.00, 1.10])
+
         create_cylindrical_section_header(left,
                                           "विंशोत्तरी महादशा",
                                           width_pt=260)
@@ -3427,8 +3582,8 @@ if can_generate:
                                           line_exact=True)
         hdr_p = cell1.paragraphs[-1]
         # Lagna chart with planets in single box per house
-        rasi_house_planets = build_rasi_house_planets_marked(
-            sidelons, lagna_sign)
+        rasi_house_planets = build_chalit_house_planets_marked(
+            sidelons, begins_sid)
         hdr_p._p.addnext(
             kundali_with_planets(size_pt=CHART_W_PT,
                                  lagna_sign=lagna_sign,
@@ -3472,10 +3627,31 @@ if can_generate:
         out.seek(0)
         # Store document data in session state for download button
         st.session_state['kundali_doc'] = out.getvalue()
-        st.session_state['kundali_filename'] = f"{sanitize_filename(name)}_Kundali.docx"
+        st.session_state[
+            'kundali_filename'] = f"{sanitize_filename(name)}_Horoscope.docx"
         st.session_state['generation_completed'] = True
 
     except Exception as e:
         st.error(f"Error generating Kundali: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
+
+# Show download button centered below Generate button after validation
+if (st.session_state.get('kundali_doc')
+        and st.session_state.get('generation_completed')
+        and st.session_state.get('submitted')
+        and  # User must have clicked Generate
+        can_generate):  # AND current form is still valid
+
+    # Center the download button like the Generate button
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        st.download_button("📥 Download Kundali (DOCX)",
+                           st.session_state['kundali_doc'],
+                           file_name=st.session_state.get(
+                               'kundali_filename', 'Horoscope.docx'),
+                           type="primary",
+                           key="download_button_main")
+
+if __name__ == '__main__':
+    main()
