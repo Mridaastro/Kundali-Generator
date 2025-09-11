@@ -1104,6 +1104,18 @@ def get_timezone_offset_simple(lat, lon):
             print(f"DEBUG: Unknown timezone {tzname}, defaulting to 0.0")
             return 0.0
 
+
+
+def _tz_to_hours(tz_str: str) -> float:
+    s = (tz_str or "").strip()
+    if not s:
+        raise ValueError("empty tz")
+    if ":" in s:
+        sign = -1.0 if s.startswith("-") else 1.0
+        hh, mm = s.lstrip("+-").split(":", 1)
+        return sign * (int(hh) + int(mm)/60.0)
+    return float(s)
+
     except Exception as e:
         print(f"DEBUG: Timezone detection failed: {e}")
         return 0.0
@@ -2749,7 +2761,7 @@ if generate_clicked or st.session_state.get('submitted'):
         any_err = True
     else:
         try:
-            _tzv = float(_tz)
+            _tzv = _tz_to_hours(_tz)
             if _tzv < -12 or _tzv > 14:
                 any_err = True
         except Exception as e:
@@ -2800,7 +2812,7 @@ if can_generate:
         dt_local = datetime.datetime.combine(dob, tob).replace(tzinfo=None)
         used_manual = False
         if tz_override.strip():
-            tz_hours = float(tz_override)
+            tz_hours = _tz_to_hours(tz_override)
             dt_utc = dt_local - datetime.timedelta(hours=tz_hours)
             tzname = f"UTC{tz_hours:+.2f} (manual)"
             used_manual = True
