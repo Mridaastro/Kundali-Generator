@@ -48,7 +48,6 @@ def _apply_bg():
                 break
     except Exception:
         pass
-
 _apply_bg()
 
 # ---------- Title row with Lingam image ----------
@@ -84,7 +83,6 @@ except Exception:
     ZoneInfo = None
 
 def get_timezone_offset_simple(lat: float, lon: float) -> str:
-    """Return UTC offset like '+5.5' based on *current* rules (DOB-independent)."""
     if TimezoneFinder is None or ZoneInfo is None:
         return ""
     tf = TimezoneFinder()
@@ -106,13 +104,12 @@ def _norm(s: str) -> str:
 
 @dataclass
 class Suggestion:
-    label: str  # "City, State, Country"
+    label: str
     lat: float
     lon: float
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def geocode_suggestions(typed: str, api_key: str, limit: int = 7) -> List[Suggestion]:
-    """Return suggestions for ambiguous city names (city/town/village only)."""
     out: List[Suggestion] = []
     typed = (typed or "").strip()
     if not typed or not api_key:
@@ -148,7 +145,6 @@ def geocode_suggestions(typed: str, api_key: str, limit: int = 7) -> List[Sugges
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
-    """Strictly resolve 'City, State, Country' to (lat, lon, formatted)."""
     if not api_key:
         raise RuntimeError("Place not found.")
     raw = (place or "").strip()
@@ -181,7 +177,7 @@ def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
 # ---------- Session keys ----------
 LAT_KEY = "pob_lat"
 LON_KEY = "pob_lon"
-TZ_KEY = "tz_input"              # internal state (string like +5.5)
+TZ_KEY = "tz_input"
 PLACE_KEY = "place_input"
 CHOICE_IDX_KEY = "place_choice_idx"
 CHOICE_OPTIONS_KEY = "place_choice_options"
@@ -196,23 +192,27 @@ if st.session_state.get(FILL_REQUEST_KEY):
     st.session_state[PLACE_KEY] = st.session_state[FILL_REQUEST_KEY]
     st.session_state[FILL_REQUEST_KEY] = None
 
-# ---------- FORM: ensures first-click submit works ----------
-with st.form("kundali_form", clear_on_submit=False):
-    col1, col2 = st.columns(2)
-    with col1:
-        name = st.text_input("Name", key="name_input", placeholder="Person Name")
-    with col2:
-        st.text_input("UTC offset", value=st.session_state[TZ_KEY], key="tz_display", help="Auto-detected from Place of Birth", disabled=True)
+# ---------- POB section (OUTSIDE the form) ----------
+st.subheader("Birth Details")
+pcol1, pcol2 = st.columns(2)
+with pcol1:
+    st.text_input("UTC offset", value=st.session_state[TZ_KEY], key="tz_display", help="Auto-detected from Place of Birth", disabled=True)
+with pcol2:
+    pass
 
-    place_typed = st.text_input("Place of Birth (City, State, Country)", key=PLACE_KEY, placeholder="e.g., Jabalpur, Madhya Pradesh, India").strip()
-    need_help = bool(place_typed) and (place_typed.count(",") < 2)
+place_typed = st.text_input("Place of Birth (City, State, Country)", key=PLACE_KEY, placeholder="e.g., Jabalpur, Madhya Pradesh, India").strip()
+need_help = bool(place_typed) and (place_typed.count(",") < 2)
 
-    def _apply_choice_callback():
-        idx = st.session_state.get(CHOICE_IDX_KEY, 0) or 0
-        options: List[Suggestion] = st.session_state.get(CHOICE_OPTIONS_KEY, [])
-        if idx > 0 and 0 < idx <= len(options):
-            chosen = options[idx - 1]
-            st.session_state[FILL_REQUEST_KEY] = chosen.label
+# Suggestions dropdown WITHOUT form callbacks
+if GEOAPIFY_API_KEY and need_help:
+    suggestions = geocode_suggestions(place_typed, GEOAPIFY_API_KEY, limit=7)
+    if suggestions:
+        st.session_state[CHOICE_OPTIONS_KEY] = suggestions
+        labels = ["— Select exact place —"] + [s.label for s in suggestions]
+        idx = st.selectbox("Similar city names found", options=list(range(len(labels))), format_func=lambda i: labels[i], index=st.session_state.get(CHOICE_IDX_KEY, 0) or 0, key=CHOICE_IDX_KEY)
+        if idx and 0 < idx <= len(suggestions):
+            chosen = suggestions[idx - 1]
+            st.session_state[FILL_REQUEST_KEY] = chosen.label  # will be applied next rerun before widget creation
             st.session_state[LAT_KEY] = chosen.lat
             st.session_state[LON_KEY] = chosen.lon
             try:
@@ -220,41 +220,40 @@ with st.form("kundali_form", clear_on_submit=False):
                 st.session_state[ERR_KEY] = None
             except Exception:
                 st.session_state[TZ_KEY] = ""
+            st.experimental_rerun()
 
-    if GEOAPIFY_API_KEY and need_help:
-        suggestions = geocode_suggestions(place_typed, GEOAPIFY_API_KEY, limit=7)
-        if suggestions:
-            st.session_state[CHOICE_OPTIONS_KEY] = suggestions
-            labels = ["— Select exact place —"] + [s.label for s in suggestions]
-            st.selectbox("Similar city names found",
-                         options=list(range(len(labels))),
-                         format_func=lambda i: labels[i],
-                         index=st.session_state.get(CHOICE_IDX_KEY, 0) or 0,
-                         key=CHOICE_IDX_KEY,
-                         on_change=_apply_choice_callback)
+# If full place typed → strict-validate + set lat/lon + auto UTC
+if GEOAPIFY_API_KEY and (not need_help) and place_typed:
+    try:
+        lat, lon, _ = geocode_strict(place_typed, GEOAPIFY_API_KEY)
+        st.session_state[LAT_KEY] = lat
+        st.session_state[LON_KEY] = lon
+        st.session_state[TZ_KEY] = get_timezone_offset_simple(lat, lon)
+        st.session_state[ERR_KEY] = None
+    except Exception as e:
+        st.session_state[TZ_KEY] = ""
+        st.session_state[LAT_KEY] = None
+        st.session_state[LON_KEY] = None
+        st.session_state[ERR_KEY] = str(e)
 
-    # If full place typed → strict-validate + set lat/lon + auto UTC
-    if GEOAPIFY_API_KEY and (not need_help) and place_typed:
-        try:
-            lat, lon, _ = geocode_strict(place_typed, GEOAPIFY_API_KEY)
-            st.session_state[LAT_KEY] = lat
-            st.session_state[LON_KEY] = lon
-            st.session_state[TZ_KEY] = get_timezone_offset_simple(lat, lon)
-            st.session_state[ERR_KEY] = None
-        except Exception as e:
-            st.session_state[TZ_KEY] = ""
-            st.session_state[LAT_KEY] = None
-            st.session_state[LON_KEY] = None
-            st.session_state[ERR_KEY] = str(e)
+col_lat, col_lon = st.columns(2)
+with col_lat:
+    st.text_input("Latitude", value=("" if st.session_state[LAT_KEY] is None else f"{st.session_state[LAT_KEY]:.6f}"), disabled=True)
+with col_lon:
+    st.text_input("Longitude", value=("" if st.session_state[LON_KEY] is None else f"{st.session_state[LON_KEY]:.6f}"), disabled=True)
 
-    col_lat, col_lon = st.columns(2)
-    with col_lat:
-        st.text_input("Latitude", value=("" if st.session_state[LAT_KEY] is None else f"{st.session_state[LAT_KEY]:.6f}"), disabled=True)
-    with col_lon:
-        st.text_input("Longitude", value=("" if st.session_state[LON_KEY] is None else f"{st.session_state[LON_KEY]:.6f}"), disabled=True)
+if st.session_state.get(ERR_KEY):
+    st.error(st.session_state[ERR_KEY])
 
-    if st.session_state.get(ERR_KEY):
-        st.error(st.session_state[ERR_KEY])
+st.markdown("---")
+
+# ---------- FORM: name/dob/tob + submit ----------
+with st.form("kundali_form", clear_on_submit=False):
+    col1, col2 = st.columns(2)
+    with col1:
+        name = st.text_input("Name", key="name_input", placeholder="Person Name")
+    with col2:
+        pass  # UTC shown above
 
     row2c1, row2c2 = st.columns(2)
     with row2c1:
@@ -354,7 +353,6 @@ def make_docx(name: str, place: str, lat: float, lon: float, tz_str: str, jd_ut:
 
 # ---------- Submit handling ----------
 if submit:
-    # Validation
     errors = []
     if not (st.session_state.get("name_input") or "").strip():
         errors.append("Name is required.")
