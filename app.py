@@ -1,4 +1,3 @@
-
 import streamlit as st
 import json, re, urllib.parse, urllib.request
 from dataclasses import dataclass
@@ -7,7 +6,7 @@ from datetime import datetime, date, time, timedelta, timezone
 import os
 from io import BytesIO
 
-# ---------- Favicon & page config ----------
+# ================= Page config (with favicon) =================
 FAVICON_PATHS = ["assets/favicon.png", "assets/favicon.ico", "assets/ganesha_bg.png"]
 page_icon = "🪔"
 try:
@@ -21,7 +20,7 @@ except Exception:
 
 st.set_page_config(page_title="MRIDAASTRO — Kundali", page_icon=page_icon, layout="centered")
 
-# ---------- Google Font (Cinzel Decorative) & optional background ----------
+# ================= Fonts + optional background =================
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&display=swap');
@@ -50,7 +49,7 @@ def _apply_bg():
         pass
 _apply_bg()
 
-# ---------- Title row with Lingam image ----------
+# ================= Title with Lingam =================
 lingam_paths = ["assets/lingam.png", "assets/lingam.jpg", "assets/lingam.webp"]
 col_logo, col_title = st.columns([1, 5])
 with col_logo:
@@ -65,7 +64,7 @@ with col_logo:
 with col_title:
     st.markdown('<h1 class="mrida-title">MRIDAASTRO — Kundali Generator</h1>', unsafe_allow_html=True)
 
-# ---------- Secrets / API keys ----------
+# ================= Secrets / API keys =================
 GEOAPIFY_API_KEY = ""
 try:
     GEOAPIFY_API_KEY = st.secrets.get("GEOAPIFY_API_KEY", "")
@@ -74,7 +73,7 @@ except Exception:
 if not GEOAPIFY_API_KEY:
     GEOAPIFY_API_KEY = os.environ.get("GEOAPIFY_API_KEY", "")
 
-# ---------- Timezone helpers ----------
+# ================= Timezone helpers =================
 try:
     from timezonefinder import TimezoneFinder
     from zoneinfo import ZoneInfo
@@ -83,6 +82,7 @@ except Exception:
     ZoneInfo = None
 
 def get_timezone_offset_simple(lat: float, lon: float) -> str:
+    """Return UTC offset like '+5.5' based on *current* rules (independent of DOB/TOB)."""
     if TimezoneFinder is None or ZoneInfo is None:
         return ""
     tf = TimezoneFinder()
@@ -97,19 +97,20 @@ def get_timezone_offset_simple(lat: float, lon: float) -> str:
     s = f"{offset_hours:+.2f}".rstrip("0").rstrip(".")
     return s
 
-# ---------- POB helpers ----------
+# ================= POB helpers =================
 def _norm(s: str) -> str:
     s = (s or "").strip().lower()
     return re.sub(r"[^a-z]", "", s)
 
 @dataclass
 class Suggestion:
-    label: str
+    label: str  # "City, State, Country"
     lat: float
     lon: float
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def geocode_suggestions(typed: str, api_key: str, limit: int = 7) -> List[Suggestion]:
+    """Return suggestions for ambiguous city names (city/town/village only)."""
     out: List[Suggestion] = []
     typed = (typed or "").strip()
     if not typed or not api_key:
@@ -145,6 +146,12 @@ def geocode_suggestions(typed: str, api_key: str, limit: int = 7) -> List[Sugges
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
+    """
+    STRICT geocoding:
+    - Requires 'City, State, Country' (3 parts).
+    - Accept only if city/state/country match (case-insensitive).
+    Returns (lat, lon, formatted_label).
+    """
     if not api_key:
         raise RuntimeError("Place not found.")
     raw = (place or "").strip()
@@ -174,45 +181,61 @@ def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
     lat = float(res["lat"]); lon = float(res["lon"])
     return lat, lon, res.get("formatted", raw)
 
-# ---------- Session keys ----------
+# ================= Session keys =================
 LAT_KEY = "pob_lat"
 LON_KEY = "pob_lon"
-TZ_KEY = "tz_input"
+TZ_KEY = "tz_internal"          # internal state; NOT bound to a widget
+TZ_SHOW_KEY = "tz_display"      # widget key to display UTC offset
 PLACE_KEY = "place_input"
 CHOICE_IDX_KEY = "place_choice_idx"
 CHOICE_OPTIONS_KEY = "place_choice_options"
 FILL_REQUEST_KEY = "place_fill_request"
 ERR_KEY = "tz_error_msg"
 
-for k, v in [(LAT_KEY,None), (LON_KEY,None), (TZ_KEY,""), (PLACE_KEY,""), (CHOICE_IDX_KEY,0), (CHOICE_OPTIONS_KEY, []), (FILL_REQUEST_KEY, None), (ERR_KEY, None)]:
+defaults = {
+    LAT_KEY: None, LON_KEY: None, TZ_KEY: "", TZ_SHOW_KEY: "",
+    PLACE_KEY: "", CHOICE_IDX_KEY: 0, CHOICE_OPTIONS_KEY: [], FILL_REQUEST_KEY: None, ERR_KEY: None
+}
+for k, v in defaults.items():
     st.session_state.setdefault(k, v)
 
-# ---------- Apply pending fill BEFORE widget creation ----------
+# Apply any staged fill BEFORE creating widgets (safe)
 if st.session_state.get(FILL_REQUEST_KEY):
     st.session_state[PLACE_KEY] = st.session_state[FILL_REQUEST_KEY]
     st.session_state[FILL_REQUEST_KEY] = None
 
-# ---------- POB section (OUTSIDE the form) ----------
-st.subheader("Birth Details")
-pcol1, pcol2 = st.columns(2)
-with pcol1:
-    st.text_input("UTC offset", value=st.session_state[TZ_KEY], key="tz_display", help="Auto-detected from Place of Birth", disabled=True)
-with pcol2:
-    pass
+# Keep the UTC display widget in sync (safe because before widget render)
+st.session_state[TZ_SHOW_KEY] = st.session_state[TZ_KEY]
 
-place_typed = st.text_input("Place of Birth (City, State, Country)", key=PLACE_KEY, placeholder="e.g., Jabalpur, Madhya Pradesh, India").strip()
+# ================= POB section (outside form; no callbacks) =================
+st.subheader("Birth Details")
+
+place_typed = st.text_input(
+    "Place of Birth (City, State, Country)",
+    key=PLACE_KEY,
+    placeholder="e.g., Jabalpur, Madhya Pradesh, India"
+).strip()
+
 need_help = bool(place_typed) and (place_typed.count(",") < 2)
 
-# Suggestions dropdown WITHOUT form callbacks
 if GEOAPIFY_API_KEY and need_help:
-    suggestions = geocode_suggestions(place_typed, GEOAPIFY_API_KEY, limit=7)
+    try:
+        suggestions = geocode_suggestions(place_typed, GEOAPIFY_API_KEY, limit=7)
+    except Exception:
+        suggestions = []
     if suggestions:
         st.session_state[CHOICE_OPTIONS_KEY] = suggestions
         labels = ["— Select exact place —"] + [s.label for s in suggestions]
-        idx = st.selectbox("Similar city names found", options=list(range(len(labels))), format_func=lambda i: labels[i], index=st.session_state.get(CHOICE_IDX_KEY, 0) or 0, key=CHOICE_IDX_KEY)
+        idx = st.selectbox(
+            "Similar city names found",
+            options=list(range(len(labels))),
+            format_func=lambda i: labels[i],
+            index=st.session_state.get(CHOICE_IDX_KEY, 0) or 0,
+            key=CHOICE_IDX_KEY,
+        )
         if idx and 0 < idx <= len(suggestions):
             chosen = suggestions[idx - 1]
-            st.session_state[FILL_REQUEST_KEY] = chosen.label  # will be applied next rerun before widget creation
+            st.session_state[FILL_REQUEST_KEY] = chosen.label  # apply next run
             st.session_state[LAT_KEY] = chosen.lat
             st.session_state[LON_KEY] = chosen.lon
             try:
@@ -230,12 +253,18 @@ if GEOAPIFY_API_KEY and (not need_help) and place_typed:
         st.session_state[LON_KEY] = lon
         st.session_state[TZ_KEY] = get_timezone_offset_simple(lat, lon)
         st.session_state[ERR_KEY] = None
+        st.session_state[TZ_SHOW_KEY] = st.session_state[TZ_KEY]
     except Exception as e:
         st.session_state[TZ_KEY] = ""
+        st.session_state[TZ_SHOW_KEY] = ""
         st.session_state[LAT_KEY] = None
         st.session_state[LON_KEY] = None
         st.session_state[ERR_KEY] = str(e)
 
+# UTC display (read-only)
+st.text_input("UTC offset", key=TZ_SHOW_KEY, disabled=True)
+
+# Coordinates
 col_lat, col_lon = st.columns(2)
 with col_lat:
     st.text_input("Latitude", value=("" if st.session_state[LAT_KEY] is None else f"{st.session_state[LAT_KEY]:.6f}"), disabled=True)
@@ -247,7 +276,7 @@ if st.session_state.get(ERR_KEY):
 
 st.markdown("---")
 
-# ---------- FORM: name/dob/tob + submit ----------
+# ================= Form: name/dob/tob + submit =================
 with st.form("kundali_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
     with col1:
@@ -263,7 +292,7 @@ with st.form("kundali_form", clear_on_submit=False):
 
     submit = st.form_submit_button("Generate Kundali")
 
-# ---------- Swiss Ephemeris ----------
+# ================= Swiss Ephemeris =================
 SWISSEPHEMERIS_AVAILABLE = True
 try:
     import swisseph as swe
@@ -313,7 +342,7 @@ def compute_chart(jd_ut: float, lat: float, lon: float):
         positions['Ke'] = None
     return {"ascendant": asc, "cusps": list(cusps) if cusps else [], "positions": positions}
 
-# ---------- DOCX export ----------
+# ================= DOCX export =================
 def make_docx(name: str, place: str, lat: float, lon: float, tz_str: str, jd_ut: float, chart: dict) -> bytes:
     from docx import Document
     from docx.shared import Pt
@@ -351,7 +380,7 @@ def make_docx(name: str, place: str, lat: float, lon: float, tz_str: str, jd_ut:
     doc.save(bio)
     return bio.getvalue()
 
-# ---------- Submit handling ----------
+# ================= Submit handling =================
 if submit:
     errors = []
     if not (st.session_state.get("name_input") or "").strip():
