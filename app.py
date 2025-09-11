@@ -73,6 +73,34 @@ def dms_to_decimal(dms_str):
     
     return decimal
 
+def decimal_to_dms_celestial(decimal_deg):
+    """Convert decimal degrees to DMS format for celestial coordinates (no direction)."""
+    if decimal_deg is None:
+        return "N/A"
+    
+    # Normalize to 0-360 range
+    decimal_deg = decimal_deg % 360.0
+    if decimal_deg < 0:
+        decimal_deg += 360.0
+    
+    # Get degrees within the current 30-degree sign
+    degrees_in_sign = decimal_deg % 30.0
+    
+    degrees = int(degrees_in_sign)
+    minutes_float = (degrees_in_sign - degrees) * 60
+    minutes = int(minutes_float)
+    seconds = (minutes_float - minutes) * 60
+    
+    # Handle rounding overflow
+    if round(seconds) == 60:
+        seconds = 0
+        minutes += 1
+    if minutes == 60:
+        minutes = 0
+        degrees += 1
+    
+    return f"{degrees}°{minutes:02d}′{round(seconds):02d}″"
+
 # ===== Background Template Helper (stable image) =====
 import os
 from io import BytesIO
@@ -3568,7 +3596,21 @@ if can_generate:
         try:
             with st.expander("Chalit (Sripati/Porphyry) — Preview",
                              expanded=False):
-                st.dataframe(df_chalit, use_container_width=True)
+                # Convert BhavBegin and MidBhav to standard DMS format for uniformity
+                df_chalit_display = df_chalit.copy()
+                for i in range(len(df_chalit_display)):
+                    # Convert begins_sid and mids_sid values to standard DMS format
+                    begin_decimal = begins_sid[i + 1]  # begins_sid is 1-indexed
+                    mid_decimal = mids_sid[i + 1]      # mids_sid is 1-indexed
+                    
+                    # Convert to standard DMS format (without direction as these are celestial longitudes)
+                    begin_dms = decimal_to_dms_celestial(begin_decimal)
+                    mid_dms = decimal_to_dms_celestial(mid_decimal)
+                    
+                    df_chalit_display.iloc[i, df_chalit_display.columns.get_loc('BhavBegin')] = begin_dms
+                    df_chalit_display.iloc[i, df_chalit_display.columns.get_loc('MidBhav')] = mid_dms
+                
+                st.dataframe(df_chalit_display, use_container_width=True)
 
                 # Numeric Chalit cusps for placement - use consistent method
                 # begins_sid, mids_sid already computed above from Swiss method
