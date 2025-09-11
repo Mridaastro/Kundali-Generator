@@ -122,19 +122,21 @@ def get_chalit_begins_mids_swiss(
         print(f"DEBUG: Unexpected cusps structure - length: {len(cusps)}, contents: {cusps}")
         raise RuntimeError(f"Swiss Ephemeris returned insufficient cusps: {len(cusps)} (need at least 12)")
     
-    # Calculate BhavBegin as midpoint between consecutive cusps
+    # Calculate BhavBegin as midpoint between PREVIOUS cusp and CURRENT cusp
+    # BhavBegin[i] = midpoint(cusp[i-1], cusp[i]) - this gives the actual BEGIN of house i
     for i in range(12):
         current_cusp = raw_cusps[i]
-        next_cusp = raw_cusps[(i + 1) % 12]
+        prev_cusp = raw_cusps[(i - 1) % 12]  # Handle wrap-around: house 0 uses cusp 11 as previous
         
-        # Handle 360-degree wraparound
-        if next_cusp < current_cusp:
-            next_cusp += 360.0
+        # Circular midpoint calculation - handle 0/360 degree wrap-around
+        diff = current_cusp - prev_cusp
+        if diff < -180:
+            diff += 360
+        elif diff > 180:
+            diff -= 360
         
-        # Calculate midpoint - this is what AstroSage calls BhavBegin
-        arc = next_cusp - current_cusp
-        midpoint = _degnorm(current_cusp + 0.5 * arc)
-        begins.append(midpoint)
+        midpoint = prev_cusp + diff / 2.0
+        begins.append(float(_degnorm(midpoint)))
     
     # Calculate Ascendant sign
     asc_lon_sid = float(_degnorm(ascmc[0]))
