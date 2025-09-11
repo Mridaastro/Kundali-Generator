@@ -219,6 +219,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytz
 import streamlit as st
+from dataclasses import dataclass
+from typing import List, Tuple, Optional
 # === App background helper (for authenticated pages) ===
 import base64, os, streamlit as st
 
@@ -1024,6 +1026,84 @@ def geocode(place, api_key):
     typed_state = parts[1] if len(parts) >= 2 else ""
     typed_country = parts[-1] if len(parts) >= 3 else (parts[1] if len(parts) == 2 else "")
 
+
+# ======= POB disambiguation & strict validation helpers (integrated) =======
+def _pob_norm(s: str) -> str:
+    s = (s or "").strip().lower()
+    return re.sub(r"[^a-z]", "", s)
+
+@dataclass
+class POB_Suggestion:
+    label: str  # "City, State, Country"
+    lat: float
+    lon: float
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def geocode_suggestions(city_only: str, api_key: str, limit: int = 12) -> List[POB_Suggestion]:
+    \"\"\"Return unique 'City, State, Country' suggestions for a given city name.\"\"\"
+    city_only = (city_only or "").strip()
+    if not city_only or not api_key:
+        return []
+    base = "https://api.geoapify.com/v1/geocode/search?"
+    q = urllib.parse.urlencode({"text": city_only, "format": "json", "limit": max(20, limit), "apiKey": api_key})
+    try:
+        with urllib.request.urlopen(base + q, timeout=15) as r:
+            j = json.loads(r.read().decode())
+    except Exception:
+        return []
+    seen = set()
+    out: List[POB_Suggestion] = []
+    for res in (j.get("results") or []):
+        city = res.get("city") or res.get("town") or res.get("village") or ""
+        if _pob_norm(city) != _pob_norm(city_only):
+            continue
+        state = res.get("state") or ""
+        country = res.get("country") or ""
+        lat = res.get("lat"); lon = res.get("lon")
+        if lat is None or lon is None:
+            continue
+        label = ", ".join([p for p in (city, state, country) if p])
+        key = (_pob_norm(city), _pob_norm(state), _pob_norm(country))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(POB_Suggestion(label=label, lat=float(lat), lon=float(lon)))
+        if len(out) >= limit:
+            break
+    return out
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
+    \"\"\"STRICT geocoding requiring 'City, State, Country' (3 parts).\"\"\"
+    if not api_key:
+        raise RuntimeError("Place not found.")
+    raw = (place or "").strip()
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if len(parts) < 3:
+        raise RuntimeError("Please enter 'City, State, Country'.")
+    typed_city, typed_state, typed_country = parts[0], parts[1], parts[-1]
+    base = "https://api.geoapify.com/v1/geocode/search?"
+    q = urllib.parse.urlencode({"text": raw, "format": "json", "limit": 1, "apiKey": api_key})
+    with urllib.request.urlopen(base + q, timeout=15) as r:
+        j = json.loads(r.read().decode())
+    if not j.get("results"):
+        raise RuntimeError("Place not found.")
+    res = j["results"][0]
+    city_res = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or res.get("county") or ""
+    state_res = res.get("state") or ""
+    country_res = res.get("country") or ""
+    if _pob_norm(city_res) != _pob_norm(typed_city):
+        fmt = res.get("formatted", "")
+        pat = r"\b" + re.escape(typed_city.strip()) + r"\b"
+        if not re.search(pat, fmt, flags=re.IGNORECASE):
+            raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+    if _pob_norm(state_res) != _pob_norm(typed_state):
+        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+    if _pob_norm(country_res) not in (_pob_norm(typed_country), "bharat", "hindustan", "india"):
+        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+    lat = float(res["lat"]); lon = float(res["lon"])
+    return lat, lon, res.get("formatted", raw)
+# ======= End POB helpers =======
     def _norm(s):
         s = (s or "").lower()
         return re.sub(r"[^a-z]", "", s)
@@ -2736,6 +2816,15 @@ if form_changed and last_form_values:  # Don't clear on first load
 # Update last values
 st.session_state['last_form_values'] = current_form_values
 
+# --- POB session keys (lat/lon + dropdown state) ---
+for _k, _v in [
+    ('pob_lat', None), ('pob_lon', None),
+    ('pob_choices', []), ('pob_choice_idx', 0),
+    ('pob_fill_pending', None)
+]:
+    st.session_state.setdefault(_k, _v)
+
+
 
 # Auto-populate UTC offset when place changes
 place_input_val = (st.session_state.get('place_input', '') or '').strip()
@@ -2750,12 +2839,14 @@ if place_input_val and (place_input_val != st.session_state.get('last_place_chec
     try:
         api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
         if api_key:
-            lat, lon, disp = geocode(place_input_val, api_key)  # strict validation
+            lat, lon, disp = geocode_strict(place_input_val, api_key)  # strict validation
             offset_hours = get_timezone_offset_simple(lat, lon)
             st.session_state['tz_input'] = str(offset_hours)
-            st.session_state['last_place_checked'] = place_input_val
-            st.session_state.pop('tz_error_msg', None)
-            st.rerun()
+st.session_state['last_place_checked'] = place_input_val
+st.session_state['pob_lat'] = float(lat)
+st.session_state['pob_lon'] = float(lon)
+st.session_state.pop('tz_error_msg', None)
+st.rerun()
     except Exception as e:
         st.session_state['tz_error_msg'] = str(e)
         # Keep tz blank when invalid
