@@ -1060,47 +1060,125 @@ def geocode(place, api_key):
         s = (s or "").lower()
         return re.sub(r"[^a-z]", "", s)
 
-    base = "https://api.geoapify.com/v1/geocode/search?"
-    q = urllib.parse.urlencode({
-        "text": raw,
-        "format": "json",
-        "limit": 1,
-        "apiKey": api_key
-    })
-    with urllib.request.urlopen(base + q, timeout=15) as r:
-        j = json.loads(r.read().decode())
+    # Improved querying strategy for better accuracy
+    search_variants = [raw]
+    
+    # For certain locations, try different search terms to get better API results
+    if typed_country in ("", "india", "bharat", "hindustan"):
+        city_norm = _norm(typed_city)
+        if city_norm == "lakshadweep":
+            # Try more specific terms for Lakshadweep
+            search_variants = [
+                "Lakshadweep Islands, India",
+                "Kavaratti, Lakshadweep, India",  # Capital
+                raw
+            ]
+        elif city_norm == "goa" and not typed_state:
+            # For Goa, try with state specification
+            search_variants = [
+                "Panaji, Goa, India",  # Capital city
+                "Goa state, India",
+                raw
+            ]
 
-    if not j.get("results"):
+    # Try multiple search variants to get the best results
+    all_results = []
+    for search_term in search_variants:
+        try:
+            base = "https://api.geoapify.com/v1/geocode/search?"
+            q = urllib.parse.urlencode({
+                "text": search_term,
+                "format": "json",
+                "limit": 3,  # Get top 3 for each variant
+                "apiKey": api_key
+            })
+            with urllib.request.urlopen(base + q, timeout=15) as r:
+                j = json.loads(r.read().decode())
+            
+            if j.get("results"):
+                print(f"DEBUG: Search term '{search_term}' returned {len(j['results'])} results")
+                all_results.extend(j["results"])
+        except Exception as e:
+            print(f"DEBUG: Search term '{search_term}' failed: {e}")
+            continue
+    
+    if not all_results:
         raise RuntimeError("Place not found.")
 
-    res = j["results"][0]
-    city_res = res.get("city") or res.get("town") or res.get(
-        "village") or res.get("municipality") or res.get("county") or ""
-    state_res = res.get("state") or ""
-    country_res = res.get("country") or ""
+    # Debug logging to understand what API returns
+    print(f"DEBUG: Geocoding '{raw}' - Found {len(all_results)} total results from all variants")
+    for i, res in enumerate(all_results[:5]):  # Log first 5 results
+        print(f"DEBUG: Result {i+1}: {res.get('formatted', 'N/A')} - {res.get('lat', 'N/A')}, {res.get('lon', 'N/A')}")
 
-    if _norm(city_res) != _norm(typed_city):
-        fmt = res.get("formatted", "")
-        import re as _re
-        pat = r"\b" + _re.escape(typed_city.strip()) + r"\b"
-        if not _re.search(pat, fmt, flags=_re.IGNORECASE):
-            raise RuntimeError(
-                "Place not found. Please enter City, State, Country correctly."
-            )
+    # Try to find the best match among all results
+    best_result = None
+    for res in all_results:
+        city_res = res.get("city") or res.get("town") or res.get(
+            "village") or res.get("municipality") or res.get("county") or ""
+        state_res = res.get("state") or ""
+        country_res = res.get("country") or ""
+        
+        # Check city match
+        city_match = _norm(city_res) == _norm(typed_city)
+        if not city_match:
+            # Check if city appears in formatted address as fallback
+            fmt = res.get("formatted", "")
+            import re as _re
+            pat = r"\b" + _re.escape(typed_city.strip()) + r"\b"
+            city_match = bool(_re.search(pat, fmt, flags=_re.IGNORECASE))
+        
+        # Check state match (if provided)
+        state_match = True
+        if typed_state:
+            state_match = _norm(state_res) == _norm(typed_state)
+        
+        # Check country match (if provided)
+        country_match = True
+        if typed_country:
+            country_match = _norm(country_res) in (_norm(typed_country), "bharat", "hindustan", "india")
+        
+        if city_match and state_match and country_match:
+            best_result = res
+            print(f"DEBUG: Found best match: {res.get('formatted', 'N/A')}")
+            break
+    
+    if not best_result:
+        # If no perfect match, try to find the best available result
+        print(f"DEBUG: No perfect match found, analyzing all {len(all_results)} results")
+        
+        # Prefer results that have better geographic specificity (state, country info)
+        scored_results = []
+        for res in all_results:
+            score = 0
+            city_res = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or ""
+            state_res = res.get("state") or ""
+            country_res = res.get("country") or ""
+            
+            # Score based on completeness and relevance
+            if city_res: score += 1
+            if state_res: score += 1
+            if country_res: score += 1
+            
+            # Extra points for being in India (if that's what we're looking for)
+            if _norm(country_res) in ("india", "bharat", "hindustan"): score += 2
+            
+            # Check if city name appears anywhere in the result
+            fmt = res.get("formatted", "")
+            if typed_city.lower() in fmt.lower(): score += 2
+            
+            scored_results.append((score, res))
+        
+        # Sort by score and pick the best
+        scored_results.sort(key=lambda x: x[0], reverse=True)
+        if scored_results:
+            best_result = scored_results[0][1]
+            print(f"DEBUG: Using best scored result: {best_result.get('formatted', 'N/A')} (score: {scored_results[0][0]})")
+        else:
+            raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
 
-    if typed_state and _norm(state_res) != _norm(typed_state):
-        raise RuntimeError(
-            "Place not found. Please enter City, State, Country correctly.")
-
-    if typed_country and _norm(country_res) not in (_norm(typed_country),
-                                                    "bharat", "hindustan",
-                                                    "india"):
-        raise RuntimeError(
-            "Place not found. Please enter City, State, Country correctly.")
-
-    lat = float(res["lat"])
-    lon = float(res["lon"])
-    return lat, lon, res.get("formatted", raw)
+    lat = float(best_result["lat"])
+    lon = float(best_result["lon"])
+    return lat, lon, best_result.get("formatted", raw)
 
 
 def get_timezone_offset_simple(lat, lon):
