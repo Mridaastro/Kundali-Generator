@@ -219,8 +219,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytz
 import streamlit as st
-from dataclasses import dataclass
-from typing import List, Tuple, Optional
 # === App background helper (for authenticated pages) ===
 import base64, os, streamlit as st
 
@@ -511,7 +509,6 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Mm, Pt
 
 
-
 def _tilak_path_candidates():
     return [
         "assets/tilak_mark.png",
@@ -519,6 +516,7 @@ def _tilak_path_candidates():
         "attached_assets/tilak_mark.png",
         "tilak_mark.png",
     ]
+
 
 def _first_existing_path(paths):
     from pathlib import Path
@@ -529,6 +527,7 @@ def _first_existing_path(paths):
         except Exception:
             pass
     return None
+
 
 def set_cell_margins(cell, *, left=None, right=None, top=None, bottom=None):
     try:
@@ -694,6 +693,7 @@ def encode_tilak_image() -> str:
             pass
     return ""
 
+
 tilak_base64 = encode_tilak_image()
 tilak_html = (f"<img src='data:image/png;base64,{tilak_base64}' "
               f"style='height:0.8em; vertical-align:baseline; margin:0 2px;'>"
@@ -710,7 +710,8 @@ st.markdown(f"""
   </div>
   <div style='height:3px; width:160px; margin:0 auto 6px auto; background:black; border-radius:2px;'></div>
 </div>
-""", unsafe_allow_html=True)
+""",
+            unsafe_allow_html=True)
 # === End MRIDAASTRO Header ===
 
 _apply_bg()
@@ -1005,7 +1006,6 @@ def kp_sublord(lon_sid):
     return lord, seq[-1]
 
 
-
 def geocode(place, api_key):
     """
     Strict geocoding with validation:
@@ -1024,92 +1024,20 @@ def geocode(place, api_key):
         raise RuntimeError("Place not found.")
     typed_city = parts[0]
     typed_state = parts[1] if len(parts) >= 2 else ""
-    typed_country = parts[-1] if len(parts) >= 3 else (parts[1] if len(parts) == 2 else "")
+    typed_country = parts[-1] if len(parts) >= 3 else (
+        parts[1] if len(parts) == 2 else "")
 
-
-# ======= POB disambiguation & strict validation helpers (integrated) =======
-def _pob_norm(s: str) -> str:
-    s = (s or "").strip().lower()
-    return re.sub(r"[^a-z]", "", s)
-
-@dataclass
-class POB_Suggestion:
-    label: str  # "City, State, Country"
-    lat: float
-    lon: float
-
-@st.cache_data(show_spinner=False, ttl=3600)
-def geocode_suggestions(city_only: str, api_key: str, limit: int = 12) -> List[POB_Suggestion]:
-    \"\"\"Return unique 'City, State, Country' suggestions for a given city name.\"\"\"
-    city_only = (city_only or "").strip()
-    if not city_only or not api_key:
-        return []
-    base = "https://api.geoapify.com/v1/geocode/search?"
-    q = urllib.parse.urlencode({"text": city_only, "format": "json", "limit": max(20, limit), "apiKey": api_key})
-    try:
-        with urllib.request.urlopen(base + q, timeout=15) as r:
-            j = json.loads(r.read().decode())
-    except Exception:
-        return []
-    seen = set()
-    out: List[POB_Suggestion] = []
-    for res in (j.get("results") or []):
-        city = res.get("city") or res.get("town") or res.get("village") or ""
-        if _pob_norm(city) != _pob_norm(city_only):
-            continue
-        state = res.get("state") or ""
-        country = res.get("country") or ""
-        lat = res.get("lat"); lon = res.get("lon")
-        if lat is None or lon is None:
-            continue
-        label = ", ".join([p for p in (city, state, country) if p])
-        key = (_pob_norm(city), _pob_norm(state), _pob_norm(country))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(POB_Suggestion(label=label, lat=float(lat), lon=float(lon)))
-        if len(out) >= limit:
-            break
-    return out
-
-@st.cache_data(show_spinner=False, ttl=3600)
-def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
-    \"\"\"STRICT geocoding requiring 'City, State, Country' (3 parts).\"\"\"
-    if not api_key:
-        raise RuntimeError("Place not found.")
-    raw = (place or "").strip()
-    parts = [p.strip() for p in raw.split(",") if p.strip()]
-    if len(parts) < 3:
-        raise RuntimeError("Please enter 'City, State, Country'.")
-    typed_city, typed_state, typed_country = parts[0], parts[1], parts[-1]
-    base = "https://api.geoapify.com/v1/geocode/search?"
-    q = urllib.parse.urlencode({"text": raw, "format": "json", "limit": 1, "apiKey": api_key})
-    with urllib.request.urlopen(base + q, timeout=15) as r:
-        j = json.loads(r.read().decode())
-    if not j.get("results"):
-        raise RuntimeError("Place not found.")
-    res = j["results"][0]
-    city_res = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or res.get("county") or ""
-    state_res = res.get("state") or ""
-    country_res = res.get("country") or ""
-    if _pob_norm(city_res) != _pob_norm(typed_city):
-        fmt = res.get("formatted", "")
-        pat = r"\b" + re.escape(typed_city.strip()) + r"\b"
-        if not re.search(pat, fmt, flags=re.IGNORECASE):
-            raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
-    if _pob_norm(state_res) != _pob_norm(typed_state):
-        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
-    if _pob_norm(country_res) not in (_pob_norm(typed_country), "bharat", "hindustan", "india"):
-        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
-    lat = float(res["lat"]); lon = float(res["lon"])
-    return lat, lon, res.get("formatted", raw)
-# ======= End POB helpers =======
     def _norm(s):
         s = (s or "").lower()
         return re.sub(r"[^a-z]", "", s)
 
     base = "https://api.geoapify.com/v1/geocode/search?"
-    q = urllib.parse.urlencode({"text": raw, "format": "json", "limit": 1, "apiKey": api_key})
+    q = urllib.parse.urlencode({
+        "text": raw,
+        "format": "json",
+        "limit": 1,
+        "apiKey": api_key
+    })
     with urllib.request.urlopen(base + q, timeout=15) as r:
         j = json.loads(r.read().decode())
 
@@ -1117,7 +1045,8 @@ def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
         raise RuntimeError("Place not found.")
 
     res = j["results"][0]
-    city_res = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or res.get("county") or ""
+    city_res = res.get("city") or res.get("town") or res.get(
+        "village") or res.get("municipality") or res.get("county") or ""
     state_res = res.get("state") or ""
     country_res = res.get("country") or ""
 
@@ -1126,16 +1055,24 @@ def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
         import re as _re
         pat = r"\b" + _re.escape(typed_city.strip()) + r"\b"
         if not _re.search(pat, fmt, flags=_re.IGNORECASE):
-            raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+            raise RuntimeError(
+                "Place not found. Please enter City, State, Country correctly."
+            )
 
     if typed_state and _norm(state_res) != _norm(typed_state):
-        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+        raise RuntimeError(
+            "Place not found. Please enter City, State, Country correctly.")
 
-    if typed_country and _norm(country_res) not in (_norm(typed_country), "bharat", "hindustan", "india"):
-        raise RuntimeError("Place not found. Please enter City, State, Country correctly.")
+    if typed_country and _norm(country_res) not in (_norm(typed_country),
+                                                    "bharat", "hindustan",
+                                                    "india"):
+        raise RuntimeError(
+            "Place not found. Please enter City, State, Country correctly.")
 
-    lat = float(res["lat"]); lon = float(res["lon"])
+    lat = float(res["lat"])
+    lon = float(res["lon"])
     return lat, lon, res.get("formatted", raw)
+
 
 def get_timezone_offset_simple(lat, lon):
     """Simple timezone offset calculation for auto-population using hardcoded values"""
@@ -1279,7 +1216,11 @@ def positions_table_no_symbol(sidelons):
 
 
 # --------- Chalit (Sripati/Porphyry) helpers ---------
-RASHI_NAMES_EN = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpion","Sagittarius","Capricorn","Aquarius","Pisces"]
+RASHI_NAMES_EN = [
+    "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpion",
+    "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+]
+
 
 def _dms_signwise_str(x: float) -> str:
     # Return DD.MM.SS within sign for a longitude in degrees.
@@ -1298,8 +1239,9 @@ def _dms_signwise_str(x: float) -> str:
         D, M, S = 29, 59, 59
     return f"{D:02d}.{M:02d}.{S:02d}"
 
+
 def _sign_name_from_lon(lon: float) -> str:
-    return RASHI_NAMES_EN[int((lon % 360)//30)]
+    return RASHI_NAMES_EN[int((lon % 360) // 30)]
 
 
 def compute_chalit_sripati_df(jd: float, lat: float, lon: float):
@@ -1327,7 +1269,7 @@ def compute_chalit_sripati_df(jd: float, lat: float, lon: float):
         this_cusp = sid_cusps[i]
         # arc length CCW
         arc = (this_cusp - prev_cusp) % 360.0
-        begin = (prev_cusp + arc/2.0) % 360.0
+        begin = (prev_cusp + arc / 2.0) % 360.0
         begin = round(begin * 3600.0) / 3600.0  # round after midpoint as well
         rows.append([
             i + 1,
@@ -1336,19 +1278,27 @@ def compute_chalit_sripati_df(jd: float, lat: float, lon: float):
             _sign_name_from_lon(this_cusp),
             _dms_signwise_str(this_cusp),
         ])
-    return _pd.DataFrame(rows, columns=["Bhav", "Rashi", "BhavBegin", "RashiMid", "MidBhav"])
+    return _pd.DataFrame(
+        rows, columns=["Bhav", "Rashi", "BhavBegin", "RashiMid", "MidBhav"])
+
+
 # --------- End Chalit helpers ---------
+
 
 # --------- Chalit numeric helpers (arrays & mapping) ---------
 def _norm360(x: float) -> float:
     x = x % 360.0
     return x if x >= 0 else x + 360.0
 
+
 def _is_between_ccw(x: float, start: float, end: float) -> bool:
-    x = _norm360(x); start = _norm360(start); end = _norm360(end)
+    x = _norm360(x)
+    start = _norm360(start)
+    end = _norm360(end)
     if start <= end:
         return start <= x < end
     return x >= start or x < end
+
 
 def compute_chalit_cusps_arrays(jd: float, lat: float, lon: float):
     """
@@ -1374,23 +1324,25 @@ def compute_chalit_cusps_arrays(jd: float, lat: float, lon: float):
     begins_sid = [None]
     mids_sid = [None]
     for i in range(1, 13):
-        prev_cusp = cusps_sid[12] if i == 1 else cusps_sid[i-1]
+        prev_cusp = cusps_sid[12] if i == 1 else cusps_sid[i - 1]
         this_cusp = cusps_sid[i]
         arc = (this_cusp - prev_cusp) % 360.0
-        begin = (prev_cusp + arc/2.0) % 360.0
+        begin = (prev_cusp + arc / 2.0) % 360.0
         begin = round(begin * 3600.0) / 3600.0
         begins_sid.append(begin)
         mids_sid.append(this_cusp)
     return begins_sid, mids_sid
 
+
 def chalit_house_index_of_lon(lon_sid: float, begins_sid):
     """Map a sidereal longitude to house index (1..12) using Chalit begins list."""
     for i in range(1, 13):
         start = begins_sid[i]
-        end = begins_sid[1] if i == 12 else begins_sid[i+1]
+        end = begins_sid[1] if i == 12 else begins_sid[i + 1]
         if _is_between_ccw(lon_sid, start, end):
             return i
     return 12
+
 
 def build_chalit_house_planets_marked(sidelons, begins_sid):
     """
@@ -1405,12 +1357,9 @@ def build_chalit_house_planets_marked(sidelons, begins_sid):
         label = fmt_planet_label(code, fl)
         house_map[h].append({'txt': label, 'flags': fl})
     return house_map
+
+
 # --------- End numeric helpers ---------
-
-
-
-
-
 
 ORDER = ['Ke', 'Ve', 'Su', 'Mo', 'Ma', 'Ra', 'Ju', 'Sa', 'Me']
 YEARS = {
@@ -2314,7 +2263,7 @@ def create_rounded_table_container(doc,
                                    height_pt=200):
     """Create a VML rounded rectangle container for tables with true circular corners"""
     # Create paragraph with VML roundrect container
-# [removed brand/tagline injection into DOCX]
+    # [removed brand/tagline injection into DOCX]
     # Create VML roundrect with genuine rounded corners
     xml_content = f'''
     <w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -2784,15 +2733,60 @@ with row1c1:
                          key="name_input",
                          label_visibility="collapsed")
 with row1c2:
-    place_val = (st.session_state.get('place_input', '') or '').strip()
+    # Handle dropdown selection by updating the place input value
+    if st.session_state.get('selected_place'):
+        place_input_value = st.session_state['selected_place']
+        st.session_state.pop('selected_place', None)  # Clear to avoid repeated updates
+    else:
+        place_input_value = st.session_state.get('place_input', '')
+    
+    place_val = (place_input_value or '').strip()
     place_err = (st.session_state.get('submitted') or
                  st.session_state.get('generate_clicked')) and (not place_val)
     render_label(
         'Place of Birth (City, State, Country) <span style="color:red">*</span>',
         place_err)
     place = st.text_input("Place of Birth",
+                          value=place_input_value,
                           key="place_input",
                           label_visibility="collapsed")
+    
+    # Show dropdown for place suggestions if available
+    if st.session_state.get('place_suggestions'):
+        candidates = st.session_state['place_suggestions']
+        print(f"DEBUG: Rendering dropdown with {len(candidates)} candidates")
+        render_label('Select Place (City, State, Country)', False)
+        options = [c[0] for c in candidates]
+        options_with_placeholder = ['Select from dropdown'] + options
+        choice = st.selectbox('Select Place', options_with_placeholder, index=0, key='pob_choice', label_visibility="collapsed")
+        
+        if choice and choice != 'Select from dropdown':
+            # Find chosen tuple and update
+            match = next((c for c in candidates if c[0] == choice), None)
+            if match:
+                disp, lat, lon = match
+                st.session_state['pob_display'] = disp
+                st.session_state['pob_lat'] = lat
+                st.session_state['pob_lon'] = lon
+                st.session_state['selected_place'] = disp  # Use different key to avoid widget conflict
+                st.session_state['last_place_checked'] = disp
+                # Auto-populate timezone
+                offset_hours = get_timezone_offset_simple(lat, lon)
+                sign = '+' if offset_hours >= 0 else '-'
+                total_minutes = int(round(abs(offset_hours) * 60))
+                hh, mm = divmod(total_minutes, 60)
+                formatted = f"{sign}{hh:02d}:{mm:02d}"
+                st.session_state['tz_input'] = formatted
+                st.session_state.pop('tz_error_msg', None)
+                st.session_state.pop('place_suggestions', None)  # Clear suggestions
+                print(f"DEBUG: Dropdown selection success for {disp} -> {lat}, {lon}, UTC: {formatted}")
+                st.rerun()
+    
+    # Display coordinates if available
+    if st.session_state.get('pob_lat') and st.session_state.get('pob_lon'):
+        lat_val = st.session_state['pob_lat']
+        lon_val = st.session_state['pob_lon']
+        st.caption(f"📍 Coordinates: {lat_val:.4f}°, {lon_val:.4f}°")
 
 # Clear previous generation if any field changes
 current_form_values = {
@@ -2816,41 +2810,134 @@ if form_changed and last_form_values:  # Don't clear on first load
 # Update last values
 st.session_state['last_form_values'] = current_form_values
 
-# --- POB session keys (lat/lon + dropdown state) ---
-for _k, _v in [
-    ('pob_lat', None), ('pob_lon', None),
-    ('pob_choices', []), ('pob_choice_idx', 0),
-    ('pob_fill_pending', None)
-]:
-    st.session_state.setdefault(_k, _v)
-
-
-
-# Auto-populate UTC offset when place changes
+# --- Enhanced place handling with suggestions ---
 place_input_val = (st.session_state.get('place_input', '') or '').strip()
-# If the user has changed the place text since our last successful geocode, immediately clear UTC
+api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
+
+# Helper: decide if a display string is "City, State, Country" (exactly 3 comma-separated parts)
+def _is_valid_place_format(place_str):
+    parts = [p.strip() for p in place_str.split(',') if p.strip()]
+    return len(parts) >= 3  # Requires City, State, Country format
+
+# If the user has changed the place text since our last successful geocode, clear related state
 if place_input_val != st.session_state.get('last_place_checked', ''):
     st.session_state['tz_input'] = ''
     st.session_state.pop('tz_error_msg', None)
-    # Also clear last_place_checked so returning to the same valid place re-triggers geocoding
+    st.session_state.pop('pob_lat', None)
+    st.session_state.pop('pob_lon', None)
+    st.session_state.pop('pob_display', None)
     st.session_state['last_place_checked'] = ''
 
-if place_input_val and (place_input_val != st.session_state.get('last_place_checked', '') or not (st.session_state.get('tz_input') or '').strip()):
-    try:
-        api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
-        if api_key:
-            lat, lon, disp = geocode_strict(place_input_val, api_key)  # strict validation
-            offset_hours = get_timezone_offset_simple(lat, lon)
-            st.session_state['tz_input'] = str(offset_hours)
-st.session_state['last_place_checked'] = place_input_val
-st.session_state['pob_lat'] = float(lat)
-st.session_state['pob_lon'] = float(lon)
-st.session_state.pop('tz_error_msg', None)
-st.rerun()
-    except Exception as e:
-        st.session_state['tz_error_msg'] = str(e)
-        # Keep tz blank when invalid
-        st.session_state['tz_input'] = ''
+# Enhanced place handling with dropdown for city-only searches
+if place_input_val:
+    print(f"DEBUG: Processing place input: '{place_input_val}', API key available: {bool(api_key)}, last_checked: '{st.session_state.get('last_place_checked', '')}'")
+    
+    # Only process if place has actually changed or coordinates are missing
+    should_process = (place_input_val != st.session_state.get('last_place_checked', '') or 
+                     not st.session_state.get('pob_lat') or 
+                     not st.session_state.get('pob_lon'))
+    
+    if should_process:
+        try:
+            # Check if input is already in valid format
+            print(f"DEBUG: Checking if '{place_input_val}' is valid format: {_is_valid_place_format(place_input_val)}")
+            if _is_valid_place_format(place_input_val) and api_key:
+                # Try direct geocoding with strict validation (only if API key available)
+                print(f"DEBUG: Attempting direct geocoding for: {place_input_val}")
+                try:
+                    lat, lon, disp = geocode(place_input_val, api_key)
+                    st.session_state['pob_lat'] = lat
+                    st.session_state['pob_lon'] = lon
+                    st.session_state['pob_display'] = disp
+                    st.session_state['last_place_checked'] = place_input_val
+                    # Auto-populate timezone
+                    offset_hours = get_timezone_offset_simple(lat, lon)
+                    sign = '+' if offset_hours >= 0 else '-'
+                    total_minutes = int(round(abs(offset_hours) * 60))
+                    hh, mm = divmod(total_minutes, 60)
+                    formatted = f"{sign}{hh:02d}:{mm:02d}"
+                    st.session_state['tz_input'] = formatted
+                    st.session_state.pop('tz_error_msg', None)
+                    print(f"DEBUG: Direct geocoding success for {place_input_val} -> {lat}, {lon}, UTC: {formatted}")
+                    st.rerun()  # Force rerun to update UI immediately
+                except Exception as e:
+                    st.session_state['tz_error_msg'] = str(e)
+                    st.session_state['tz_input'] = ''
+                    print(f"DEBUG: Direct geocoding failed for {place_input_val}: {e}")
+            elif _is_valid_place_format(place_input_val) and not api_key:
+                # Valid format but no API key - show error
+                print(f"DEBUG: Valid format but no API key for: {place_input_val}")
+                st.session_state['tz_error_msg'] = "API key required for place validation."
+                st.session_state['tz_input'] = ''
+            else:
+                # Input is not in valid 3-part format - search for multiple matches
+                print(f"DEBUG: Invalid format, searching for suggestions for: {place_input_val}")
+                candidates = []
+                
+                if api_key:
+                    # Use Geoapify if API key available
+                    import json, urllib.parse, urllib.request
+                    base = "https://api.geoapify.com/v1/geocode/search?"
+                    q = urllib.parse.urlencode({
+                        "text": place_input_val,
+                        "format": "json",
+                        "limit": 10,
+                        "apiKey": api_key
+                    })
+                    with urllib.request.urlopen(base + q, timeout=15) as r:
+                        j = json.loads(r.read().decode())
+                    
+                    if j.get("results"):
+                        for res in j["results"]:
+                            city = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or ""
+                            state = res.get("state") or ""
+                            country = res.get("country") or ""
+                            
+                            # Build display string
+                            if city and country:  # At minimum need city and country
+                                if state:
+                                    display_str = f"{city}, {state}, {country}"
+                                else:
+                                    display_str = f"{city}, {country}"
+                                lat = float(res["lat"])
+                                lon = float(res["lon"])
+                                candidates.append((display_str, lat, lon))
+                else:
+                    # No API key - show fallback suggestions for common cities
+                    print(f"DEBUG: No API key, showing fallback suggestions for: {place_input_val}")
+                    city_lower = place_input_val.lower().strip()
+                    fallback_suggestions = {
+                        'mumbai': [("Mumbai, Maharashtra, India", 19.0760, 72.8777)],
+                        'delhi': [("Delhi, Delhi, India", 28.7041, 77.1025)],
+                        'london': [("London, England, United Kingdom", 51.5074, -0.1278)],
+                        'new york': [("New York, New York, United States", 40.7128, -74.0060)],
+                        'paris': [("Paris, Île-de-France, France", 48.8566, 2.3522)],
+                        'tokyo': [("Tokyo, Tokyo, Japan", 35.6762, 139.6503)]
+                    }
+                    candidates = fallback_suggestions.get(city_lower, [])
+                
+                # Remove duplicates
+                candidates = list(dict.fromkeys(candidates))
+                print(f"DEBUG: Found {len(candidates)} candidates")
+                
+                if len(candidates) >= 1:
+                    # Show dropdown for any suggestions (even single matches for clarity)
+                    print(f"DEBUG: Storing {len(candidates)} suggestions for dropdown")
+                    st.session_state['place_suggestions'] = candidates
+                    st.rerun()  # Force rerun to render dropdown immediately
+                else:
+                    # No matches found  
+                    print(f"DEBUG: No matches found for: {place_input_val}")
+                    st.session_state['tz_error_msg'] = "Place not found. Please enter in City, State, Country format."
+                    st.session_state['tz_input'] = ''
+        except Exception:
+            # On any error, clear coords and show format guidance
+            st.session_state.pop('pob_lat', None)
+            st.session_state.pop('pob_lon', None)
+            st.session_state.pop('pob_display', None)
+            st.session_state['tz_error_msg'] = "Please enter City, State, Country format."
+            st.session_state['tz_input'] = ''
+
 
 # Row 2: Date of Birth, Time of Birth, and UTC offset override
 row2c1, row2c2, row2c3 = st.columns(3)
@@ -3011,14 +3098,15 @@ if can_generate:
         df_chalit = compute_chalit_sripati_df(jd, lat, lon)
         # Optional on-screen preview
         try:
-            with st.expander("Chalit (Sripati/Porphyry) — Preview", expanded=False):
+            with st.expander("Chalit (Sripati/Porphyry) — Preview",
+                             expanded=False):
                 st.dataframe(df_chalit, use_container_width=True)
 
                 # Numeric Chalit cusps for placement
-                begins_sid, mids_sid = compute_chalit_cusps_arrays(jd, lat, lon)
+                begins_sid, mids_sid = compute_chalit_cusps_arrays(
+                    jd, lat, lon)
         except Exception:
             pass
-
 
         ORDER = ['Ke', 'Ve', 'Su', 'Mo', 'Ma', 'Ra', 'Ju', 'Sa', 'Me']
         YEARS = {
@@ -3129,7 +3217,7 @@ if can_generate:
             pass
 
         # ===== EXACT LAYOUT MATCH: Top section with Personal Details (left) + MRIDAASTRO (right) =====
-        
+
         # --- Clean up template brand/tagline to avoid duplicates (only clears exact matches) ---
         try:
             _brand_keys = [
@@ -3143,15 +3231,18 @@ if can_generate:
                 "In the light of divine, let your soul journey shine",
                 "In the light of divine",
             ]
+
             def _clear_para_text(p):
                 for r in list(p.runs):
                     try:
                         r.text = ""
                     except Exception:
                         pass
+
             for p in list(doc.paragraphs)[:15]:
                 t = (p.text or "").strip()
-                if any(k in t for k in _brand_keys) or any(k in t for k in _tag_keys):
+                if any(k in t for k in _brand_keys) or any(k in t
+                                                           for k in _tag_keys):
                     _clear_para_text(p)
                     try:
                         p.paragraph_format.space_before = Pt(0)
@@ -3161,7 +3252,9 @@ if can_generate:
             try:
                 for p in list(doc.sections[0].header.paragraphs)[:10]:
                     t = (p.text or "").strip()
-                    if any(k in t for k in _brand_keys) or any(k in t for k in _tag_keys):
+                    if any(k in t
+                           for k in _brand_keys) or any(k in t
+                                                        for k in _tag_keys):
                         _clear_para_text(p)
             except Exception:
                 pass
@@ -3316,8 +3409,6 @@ if can_generate:
                     tcBorders.append(el)
                 tcPr.append(tcBorders)
 
-            
-            
             # RIGHT CELL: Inject brand so it's side-by-side with Personal Details
             right_cell = header_table.rows[0].cells[1]
             right_cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
@@ -3338,9 +3429,12 @@ if can_generate:
             r_left = p_brand.add_run("MR")
             try:
                 r_left.font.name = "Cinzel Decorative"
-                r_left._element.rPr.rFonts.set(qn('w:ascii'), "Cinzel Decorative")
-                r_left._element.rPr.rFonts.set(qn('w:hAnsi'), "Cinzel Decorative")
-                r_left._element.rPr.rFonts.set(qn('w:eastAsia'), "Cinzel Decorative")
+                r_left._element.rPr.rFonts.set(qn('w:ascii'),
+                                               "Cinzel Decorative")
+                r_left._element.rPr.rFonts.set(qn('w:hAnsi'),
+                                               "Cinzel Decorative")
+                r_left._element.rPr.rFonts.set(qn('w:eastAsia'),
+                                               "Cinzel Decorative")
                 r_left._element.rPr.rFonts.set(qn('w:cs'), "Cinzel Decorative")
             except Exception:
                 pass
@@ -3360,10 +3454,14 @@ if can_generate:
                 r_i = p_brand.add_run("I")
                 try:
                     r_i.font.name = "Cinzel Decorative"
-                    r_i._element.rPr.rFonts.set(qn('w:ascii'), "Cinzel Decorative")
-                    r_i._element.rPr.rFonts.set(qn('w:hAnsi'), "Cinzel Decorative")
-                    r_i._element.rPr.rFonts.set(qn('w:eastAsia'), "Cinzel Decorative")
-                    r_i._element.rPr.rFonts.set(qn('w:cs'), "Cinzel Decorative")
+                    r_i._element.rPr.rFonts.set(qn('w:ascii'),
+                                                "Cinzel Decorative")
+                    r_i._element.rPr.rFonts.set(qn('w:hAnsi'),
+                                                "Cinzel Decorative")
+                    r_i._element.rPr.rFonts.set(qn('w:eastAsia'),
+                                                "Cinzel Decorative")
+                    r_i._element.rPr.rFonts.set(qn('w:cs'),
+                                                "Cinzel Decorative")
                 except Exception:
                     pass
                 r_i.font.size = Pt(36)
@@ -3372,10 +3470,14 @@ if can_generate:
             r_right = p_brand.add_run("DAASTRO")
             try:
                 r_right.font.name = "Cinzel Decorative"
-                r_right._element.rPr.rFonts.set(qn('w:ascii'), "Cinzel Decorative")
-                r_right._element.rPr.rFonts.set(qn('w:hAnsi'), "Cinzel Decorative")
-                r_right._element.rPr.rFonts.set(qn('w:eastAsia'), "Cinzel Decorative")
-                r_right._element.rPr.rFonts.set(qn('w:cs'), "Cinzel Decorative")
+                r_right._element.rPr.rFonts.set(qn('w:ascii'),
+                                                "Cinzel Decorative")
+                r_right._element.rPr.rFonts.set(qn('w:hAnsi'),
+                                                "Cinzel Decorative")
+                r_right._element.rPr.rFonts.set(qn('w:eastAsia'),
+                                                "Cinzel Decorative")
+                r_right._element.rPr.rFonts.set(qn('w:cs'),
+                                                "Cinzel Decorative")
             except Exception:
                 pass
             r_right.font.size = Pt(36)
@@ -3389,19 +3491,19 @@ if can_generate:
                 p_tag.paragraph_format.space_after = Pt(0)
             except Exception:
                 pass
-            r_t = p_tag.add_run("In the light of divine, let your soul journey shine")
+            r_t = p_tag.add_run(
+                "In the light of divine, let your soul journey shine")
             try:
                 r_t.font.name = "Cinzel Decorative"
                 r_t._element.rPr.rFonts.set(qn('w:ascii'), "Cinzel Decorative")
                 r_t._element.rPr.rFonts.set(qn('w:hAnsi'), "Cinzel Decorative")
-                r_t._element.rPr.rFonts.set(qn('w:eastAsia'), "Cinzel Decorative")
+                r_t._element.rPr.rFonts.set(qn('w:eastAsia'),
+                                            "Cinzel Decorative")
                 r_t._element.rPr.rFonts.set(qn('w:cs'), "Cinzel Decorative")
             except Exception:
                 pass
-            r_t.font.size = Pt( 12 )
+            r_t.font.size = Pt(12)
             r_t.italic = True
-
-
 
             # Add some space after header table
             spacer1 = doc.add_paragraph()
@@ -3521,12 +3623,15 @@ if can_generate:
 
         # Original Mahadasha section
         # h2 = left.add_paragraph("विंशोत्तरी महादशा"); _apply_hindi_caption_style(h2, size_pt=11, underline=True, bold=True); h2.paragraph_format.keep_with_next = True; h2.paragraph_format.space_after = Pt(2)
-        
+
         # === CHALIT (Sripati/Porphyry) SECTION ===
-        create_cylindrical_section_header(left, "भव चलित (Sripati)", width_pt=260)
+        create_cylindrical_section_header(left,
+                                          "भव चलित (Sripati)",
+                                          width_pt=260)
         t_ch = left.add_table(rows=1, cols=5)
         t_ch.autofit = False
-        for i, h in enumerate(["Bhav","Rashi","BhavBegin","Rashi","MidBhav"]):
+        for i, h in enumerate(
+            ["Bhav", "Rashi", "BhavBegin", "Rashi", "MidBhav"]):
             t_ch.rows[0].cells[i].text = h
         for _, row in df_chalit.iterrows():
             r = t_ch.add_row().cells
