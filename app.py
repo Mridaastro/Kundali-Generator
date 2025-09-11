@@ -2709,32 +2709,25 @@ st.write("")
 api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
 
 # Center the Generate Kundali button
+
+# Center the Generate Kundali button
 col1, col2, col3 = st.columns([1, 1, 1])
 with col2:
-    generate_clicked = st.button("Generate Kundali", key="gen_btn")
-    if generate_clicked:
-        st.session_state['generate_clicked'] = True
+    if st.button("Generate Kundali", key="gen_btn"):
+        st.session_state['request_generate'] = True
         st.session_state['submitted'] = True
-        st.rerun()  # Immediate rerun to show validation
+        st.rerun()
 
 # --- Validation gate computed on rerun after click ---
 can_generate = False
-if generate_clicked or st.session_state.get('submitted'):
-    # Set submitted state for error highlighting
-    st.session_state['submitted'] = True
-
-    # Use session state values (more reliable after rerun)
-    _name = (st.session_state.get('name_input') or '').strip()
+if st.session_state.get('submitted'):
+    _name  = (st.session_state.get('name_input')  or '').strip()
     _place = (st.session_state.get('place_input') or '').strip()
-    _tz = (st.session_state.get('tz_input') or '').strip()
-    _dob = st.session_state.get('dob_input',
-                                datetime.date.today())  # Use today as default
-    _tob = st.session_state.get('tob_input',
-                                datetime.time(12, 0))  # Use 12:00 as default
+    _tz    = (st.session_state.get('tz_input')    or '').strip()
+    _dob   = st.session_state.get('dob_input', datetime.date.today())
+    _tob   = st.session_state.get('tob_input', datetime.time(12, 0))
 
     any_err = False
-
-    # Check all required fields
     if not _name or not _place or not _tz or _dob is None or _tob is None:
         any_err = True
     else:
@@ -2742,32 +2735,21 @@ if generate_clicked or st.session_state.get('submitted'):
             _tzv = _tz_to_hours(_tz)
             if _tzv < -12 or _tzv > 14:
                 any_err = True
-        except Exception as e:
+        except Exception:
             any_err = True
 
     if any_err:
-        # Error message perfectly centered below the Generate button
-        st.markdown("""<div style='
-                display: flex; 
-                justify-content: center; 
-                width: 100%; 
-                margin-top: 10px;
-            '>
-                <div style='
-                    color: #c1121f; 
-                    font-weight: 700; 
-                    text-align: center;
-                    padding: 8px 0;
-                '>
-                    Please fix the highlighted fields above.
-                </div>
-            </div>""",
-                    unsafe_allow_html=True)
+        st.markdown(
+            "<div style='display:flex;justify-content:center;width:100%;"
+            "margin-top:10px'><div style='color:#c1121f;font-weight:700;"
+            "text-align:center;padding:8px 0'>Please fix the highlighted "
+            "fields above.</div></div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state['request_generate'] = False
     else:
         can_generate = True
-        # Clear previous generation flag to ensure clean state
         st.session_state['generation_completed'] = False
-
 # Show download button
 
 # Single, de-duplicated download button
@@ -3490,8 +3472,7 @@ if can_generate:
         out.seek(0)
         # Store document data in session state for download button
         st.session_state['kundali_doc'] = out.getvalue()
-        st.session_state[
-            'kundali_filename'] = f"{sanitize_filename(name)}_Horoscope.docx"
+        st.session_state['kundali_filename'] = f"{sanitize_filename(name)}_Kundali.docx"
         st.session_state['generation_completed'] = True
 
     except Exception as e:
