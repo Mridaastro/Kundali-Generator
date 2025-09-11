@@ -34,6 +34,45 @@ def decimal_to_dms(decimal_deg, is_latitude=True):
     
     return f"{degrees}°{minutes:02d}′{seconds:02d}″{direction}"
 
+def dms_to_decimal(dms_str):
+    """Convert DMS format back to decimal degrees."""
+    import re
+    if not dms_str or dms_str.strip() == "":
+        return None
+        
+    # Handle various DMS input formats
+    # Accept formats like: 23°45′30″N, 23°45'30"N, 23d45m30sN, 23 45 30 N, etc.
+    dms_str = dms_str.strip().upper()
+    
+    # Normalize different symbols
+    dms_str = dms_str.replace('°', 'd').replace('′', 'm').replace('″', 's')
+    dms_str = dms_str.replace('\'', 'm').replace('"', 's')
+    
+    # Extract numbers and direction
+    pattern = r'(\d+)d?\s*(\d+)m?\s*(\d+(?:\.\d+)?)s?\s*([NSEW])'
+    match = re.search(pattern, dms_str)
+    
+    if not match:
+        # Try simpler pattern without direction
+        pattern = r'(\d+)\s*(\d+)\s*(\d+(?:\.\d+)?)'
+        match = re.search(pattern, dms_str)
+        if match:
+            degrees, minutes, seconds = match.groups()
+            direction = None
+        else:
+            raise ValueError(f"Invalid DMS format: {dms_str}")
+    else:
+        degrees, minutes, seconds, direction = match.groups()
+    
+    # Convert to decimal
+    decimal = int(degrees) + int(minutes)/60 + float(seconds)/3600
+    
+    # Apply direction
+    if direction in ['S', 'W']:
+        decimal = -decimal
+    
+    return decimal
+
 # ===== Background Template Helper (stable image) =====
 import os
 from io import BytesIO
@@ -1066,7 +1105,24 @@ def geocode(place, api_key):
     # For certain locations, try different search terms to get better API results
     if typed_country in ("", "india", "bharat", "hindustan"):
         city_norm = _norm(typed_city)
-        if city_norm == "lakshadweep":
+        
+        # Handle common spelling variations for Indian places
+        if city_norm == "sehora" or city_norm == "sihora":
+            # Sehora is commonly misspelled - correct spelling is Sihora
+            print(f"DEBUG: Detected Sihora location - prioritizing Jabalpur district")
+            if typed_state and "madhya" in _norm(typed_state):
+                search_variants = [
+                    "Sihora, Jabalpur, Madhya Pradesh, India",  # Most specific
+                    "Sihora, Madhya Pradesh, India",
+                    raw  # Keep original as fallback
+                ]
+            else:
+                search_variants = [
+                    "Sihora, Jabalpur, Madhya Pradesh, India",  # Most specific 
+                    "Sihora, Madhya Pradesh, India",
+                    raw
+                ]
+        elif city_norm == "lakshadweep":
             # Try more specific terms for Lakshadweep
             search_variants = [
                 "Lakshadweep Islands, India",
@@ -1086,12 +1142,23 @@ def geocode(place, api_key):
     for search_term in search_variants:
         try:
             base = "https://api.geoapify.com/v1/geocode/search?"
-            q = urllib.parse.urlencode({
+            
+            # Prepare query parameters with Sihora-specific filters
+            query_params = {
                 "text": search_term,
                 "format": "json",
-                "limit": 3,  # Get top 3 for each variant
+                "limit": 3,
                 "apiKey": api_key
-            })
+            }
+            
+            # Add specific bias for Sihora to target correct location  
+            if "sihora" in search_term.lower():
+                print(f"DEBUG: Adding proximity bias for direct geocoding")
+                query_params.update({
+                    "bias": "proximity:80.1066,23.4866"  # Bias towards correct coordinates
+                })
+            
+            q = urllib.parse.urlencode(query_params)
             with urllib.request.urlopen(base + q, timeout=15) as r:
                 j = json.loads(r.read().decode())
             
@@ -1109,6 +1176,32 @@ def geocode(place, api_key):
     print(f"DEBUG: Geocoding '{raw}' - Found {len(all_results)} total results from all variants")
     for i, res in enumerate(all_results[:5]):  # Log first 5 results
         print(f"DEBUG: Result {i+1}: {res.get('formatted', 'N/A')} - {res.get('lat', 'N/A')}, {res.get('lon', 'N/A')}")
+
+    # Check for Sihora location and apply deterministic selection
+    sihora_query = "sihora" in raw.lower() and ("madhya" in raw.lower() or "mp" in raw.lower() or "jabalpur" in raw.lower())
+    
+    if sihora_query and all_results:
+        # Find the Jabalpur district Sihora specifically
+        for res in all_results:
+            city_name = (res.get("city") or res.get("town") or res.get("municipality") or "").lower()
+            county = (res.get("county") or res.get("district") or "").lower()  
+            state = (res.get("state") or "").lower()
+            result_type = res.get("result_type", "").lower()
+            
+            print(f"DEBUG: Checking result - city: {city_name}, county: {county}, state: {state}, type: {result_type}")
+            
+            if ("sihora" in city_name and 
+                "jabalpur" in county and
+                result_type in ["city", "town", "municipality"]):
+                lat, lon = float(res["lat"]), float(res["lon"])
+                display = res.get("formatted", f"Sihora, Jabalpur, Madhya Pradesh, India")
+                print(f"DEBUG: Found exact Jabalpur Sihora match: {display} -> {lat}, {lon}")
+                return lat, lon, display
+    
+    # Fallback for Sihora if no perfect match found from API
+    if sihora_query and (not all_results or not any("sihora" in str(r.get("city", "")).lower() for r in all_results)):
+        print(f"DEBUG: Using fallback coordinates for Sihora, Jabalpur (no API match)")
+        return 23.4866, 80.1066, "Sihora, Jabalpur, Madhya Pradesh, India"
 
     # Try to find the best match among all results
     best_result = None
@@ -2875,6 +2968,10 @@ with row1c2:
                 st.session_state['pob_display'] = disp
                 st.session_state['pob_lat'] = lat
                 st.session_state['pob_lon'] = lon
+                # Store original coordinates for reset functionality
+                st.session_state['original_lat'] = lat
+                st.session_state['original_lon'] = lon
+                print(f"DEBUG: STORED original coordinates: {lat}, {lon}")
                 st.session_state['selected_place'] = disp  # Use different key to avoid widget conflict
                 st.session_state['last_place_checked'] = disp
                 # Auto-populate timezone
@@ -2889,13 +2986,133 @@ with row1c2:
                 print(f"DEBUG: Dropdown selection success for {disp} -> {lat}, {lon}, UTC: {formatted}")
                 st.rerun()
 
-    # Display coordinates if available (moved from above)
+    # Display coordinates with edit functionality
     if st.session_state.get('pob_lat') and st.session_state.get('pob_lon'):
         lat_val = st.session_state['pob_lat']
         lon_val = st.session_state['pob_lon']
+        print(f"DEBUG: Displaying coordinates - lat_val: {lat_val}, lon_val: {lon_val}")
         lat_dms = decimal_to_dms(lat_val, is_latitude=True)
         lon_dms = decimal_to_dms(lon_val, is_latitude=False)
-        st.caption(f"📍 Coordinates: {lat_dms} {lon_dms}")
+        print(f"DEBUG: Converted to DMS - lat_dms: {lat_dms}, lon_dms: {lon_dms}")
+        
+        # Display coordinates with edit button close to coordinates
+        coord_col, edit_col = st.columns([5, 1])  # Bring edit button closer
+        
+        with coord_col:
+            st.write(f"📍 **Coordinates:** {lat_dms} {lon_dms}")
+        
+        with edit_col:
+            if st.button("✏️", help="Edit coordinates", key="edit_coordinates_btn", use_container_width=True):
+                st.session_state['coord_edit_mode'] = True
+                # Store current coordinates in DMS format for editing
+                st.session_state['edit_lat_dms'] = decimal_to_dms(lat_val, is_latitude=True)
+                st.session_state['edit_lon_dms'] = decimal_to_dms(lon_val, is_latitude=False)
+                print(f"DEBUG: Edit mode enabled - original coords stored: {st.session_state.get('original_lat', 'None')}, {st.session_state.get('original_lon', 'None')}")
+                st.rerun()
+        
+        # Coordinate editing interface
+        if st.session_state.get('coord_edit_mode', False):
+            st.markdown("**Edit Coordinates**")
+            edit_col1, edit_col2 = st.columns(2)
+            
+            with edit_col1:
+                st.text_input(
+                    "Latitude (DMS format)",
+                    value=st.session_state.get('edit_lat_dms', decimal_to_dms(lat_val, is_latitude=True)),
+                    key='edit_lat_input',
+                    help="Enter latitude in DMS format (e.g., 23°45′30″N or 23d45m30sN)"
+                )
+            
+            with edit_col2:
+                st.text_input(
+                    "Longitude (DMS format)", 
+                    value=st.session_state.get('edit_lon_dms', decimal_to_dms(lon_val, is_latitude=False)),
+                    key='edit_lon_input',
+                    help="Enter longitude in DMS format (e.g., 80°15′45″E or 80d15m45sE)"
+                )
+            
+            # Action buttons
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            with btn_col1:
+                if st.button("✅ Save", key="save_coordinates"):
+                    print(f"DEBUG: Save coordinates button clicked!")
+                    try:
+                        # Parse DMS format and convert to decimal
+                        new_lat = dms_to_decimal(st.session_state['edit_lat_input'])
+                        new_lon = dms_to_decimal(st.session_state['edit_lon_input'])
+                        print(f"DEBUG: Parsed DMS to decimal - lat: {new_lat}, lon: {new_lon}")
+                        
+                        if new_lat is None or new_lon is None:
+                            st.error("Please enter valid DMS format coordinates")
+                            print(f"DEBUG: DMS parsing failed - lat: {new_lat}, lon: {new_lon}")
+                        elif not (-90 <= new_lat <= 90):
+                            st.error("Latitude must be between -90 and 90 degrees")
+                            print(f"DEBUG: Latitude validation failed: {new_lat}")
+                        elif not (-180 <= new_lon <= 180):
+                            st.error("Longitude must be between -180 and 180 degrees")
+                            print(f"DEBUG: Longitude validation failed: {new_lon}")
+                        else:
+                            print(f"DEBUG: Validation passed, saving coordinates")
+                            # Save coordinates
+                            old_lat = st.session_state.get('pob_lat')
+                            old_lon = st.session_state.get('pob_lon')
+                            st.session_state['pob_lat'] = new_lat
+                            st.session_state['pob_lon'] = new_lon
+                            print(f"DEBUG: Updated coordinates from ({old_lat}, {old_lon}) to ({new_lat}, {new_lon})")
+                            
+                            # Update timezone for new coordinates
+                            offset_hours = get_timezone_offset_simple(new_lat, new_lon)
+                            sign = '+' if offset_hours >= 0 else '-'
+                            total_minutes = int(round(abs(offset_hours) * 60))
+                            hh, mm = divmod(total_minutes, 60)
+                            formatted = f"{sign}{hh:02d}:{mm:02d}"
+                            st.session_state['tz_input'] = formatted
+                            print(f"DEBUG: Updated timezone to: {formatted}")
+                            
+                            # Clear edit mode and trigger immediate rerun
+                            st.session_state['coord_edit_mode'] = False
+                            print(f"DEBUG: Coordinate update completed, clearing edit mode and triggering rerun")
+                            st.rerun()
+                    except (ValueError, TypeError) as e:
+                        st.error("Please enter valid DMS format coordinates (e.g., 23°45′30″N)")
+                        print(f"DEBUG: Error parsing DMS coordinates: {e}")
+            
+            with btn_col2:
+                if st.button("❌ Cancel", key="cancel_coordinates"):
+                    st.session_state['coord_edit_mode'] = False
+                    st.rerun()
+            
+            with btn_col3:
+                if st.button("🔄 Reset", key="reset_coordinates", help="Reset to original coordinates"):
+                    # Reset to the original API coordinates (no fallback to current)
+                    original_lat = st.session_state.get('original_lat')
+                    original_lon = st.session_state.get('original_lon')
+                    print(f"DEBUG: Reset clicked - checking original coords: original_lat={original_lat}, original_lon={original_lon}")
+                    print(f"DEBUG: Reset clicked - current saved coords: lat_val={lat_val}, lon_val={lon_val}")
+                    
+                    if original_lat is not None and original_lon is not None:
+                        # Reset to original coordinates by updating the actual coordinate values
+                        st.session_state['pob_lat'] = original_lat
+                        st.session_state['pob_lon'] = original_lon
+                        # Update DMS format for edit inputs
+                        st.session_state['edit_lat_dms'] = decimal_to_dms(original_lat, is_latitude=True)
+                        st.session_state['edit_lon_dms'] = decimal_to_dms(original_lon, is_latitude=False)
+                        # Update timezone for reset coordinates
+                        offset_hours = get_timezone_offset_simple(original_lat, original_lon)
+                        sign = '+' if offset_hours >= 0 else '-'
+                        total_minutes = int(round(abs(offset_hours) * 60))
+                        hh, mm = divmod(total_minutes, 60)
+                        formatted = f"{sign}{hh:02d}:{mm:02d}"
+                        st.session_state['tz_input'] = formatted
+                        # Close edit mode to show the reset in the display
+                        st.session_state['coord_edit_mode'] = False
+                        print(f"DEBUG: Reset SUCCESS - restored ORIGINAL API coords: {original_lat}, {original_lon}, timezone: {formatted}, closed edit mode")
+                    else:
+                        # Fallback if no original coordinates stored
+                        st.session_state['edit_lat'] = lat_val
+                        st.session_state['edit_lon'] = lon_val
+                        print(f"DEBUG: Reset FALLBACK - no original coords found, using current: {lat_val}, {lon_val}")
+                    st.rerun()
 
 # Clear previous generation if any field changes
 current_form_values = {
@@ -2936,8 +3153,12 @@ if not place_input_val:
         print("DEBUG: Starting coordinate clearing process")
         st.session_state['clearing_coords'] = True
         st.session_state.pop('pob_lat', None)
-        st.session_state.pop('pob_lon', None)
+        st.session_state.pop('pob_lon', None)  
         st.session_state.pop('pob_display', None)
+        # PRESERVE original coordinates during clearing
+        # st.session_state.pop('original_lat', None)  # Commented to keep
+        # st.session_state.pop('original_lon', None)  # Commented to keep
+        print(f"DEBUG: Cleared coordinates, preserving originals: {st.session_state.get('original_lat')}, {st.session_state.get('original_lon')}")
         st.session_state['tz_input'] = ''
         st.session_state.pop('tz_error_msg', None)
         st.session_state['last_place_checked'] = ''
@@ -2961,6 +3182,9 @@ if place_input_val != st.session_state.get('last_place_checked', ''):
     st.session_state.pop('pob_lat', None)
     st.session_state.pop('pob_lon', None)
     st.session_state.pop('pob_display', None)
+    # PRESERVE original coordinates when place input changes  
+    # Don't clear original_lat and original_lon here
+    print(f"DEBUG: Place input changed, cleared coords but preserving originals: {st.session_state.get('original_lat')}, {st.session_state.get('original_lon')}")
     st.session_state['last_place_checked'] = ''
 
 # (Coordinate clearing logic moved above to happen before display)
@@ -2986,6 +3210,10 @@ if place_input_val:
                     st.session_state['pob_lat'] = lat
                     st.session_state['pob_lon'] = lon
                     st.session_state['pob_display'] = disp
+                    # Store original coordinates for reset functionality (direct geocoding path)
+                    st.session_state['original_lat'] = lat
+                    st.session_state['original_lon'] = lon
+                    print(f"DEBUG: STORED original coordinates (direct geocoding): {lat}, {lon}")
                     st.session_state['last_place_checked'] = place_input_val
                     # Auto-populate timezone
                     offset_hours = get_timezone_offset_simple(lat, lon)
@@ -3012,23 +3240,77 @@ if place_input_val:
                 candidates = []
                 
                 if api_key:
-                    # Use Geoapify if API key available
+                    # Use Geoapify if API key available with spelling variation handling
                     import json, urllib.parse, urllib.request
+                    import re
+                    
+                    def _norm_suggestion(s):
+                        s = (s or "").lower()
+                        return re.sub(r"[^a-z]", "", s)
+                    
+                    # Handle spelling variations for suggestions
+                    search_terms = [place_input_val]  # Original input as fallback
+                    city_norm = _norm_suggestion(place_input_val)
+                    
+                    # Add spelling variation for Sehora -> Sihora
+                    if city_norm == "sehora":
+                        print(f"DEBUG: Detected spelling variation in suggestions: 'Sehora' -> trying 'Sihora'")
+                        search_terms = [
+                            "Sihora",  # Try correct spelling first
+                            "Sihora, Madhya Pradesh, India",  # More specific
+                            place_input_val  # Original as fallback
+                        ]
+                    
+                    all_results = []
                     base = "https://api.geoapify.com/v1/geocode/search?"
-                    q = urllib.parse.urlencode({
-                        "text": place_input_val,
-                        "format": "json",
-                        "limit": 10,
-                        "apiKey": api_key
-                    })
-                    with urllib.request.urlopen(base + q, timeout=15) as r:
-                        j = json.loads(r.read().decode())
+                    
+                    # Try each search term
+                    for search_term in search_terms:
+                        try:
+                            # Prepare query parameters
+                            query_params = {
+                                "text": search_term,
+                                "format": "json",
+                                "limit": 5,
+                                "apiKey": api_key
+                            }
+                            
+                            # Add specific bias for Sihora to target correct location
+                            if "sihora" in search_term.lower():
+                                print(f"DEBUG: Adding proximity bias for Sihora search")
+                                query_params.update({
+                                    "bias": "proximity:80.1066,23.4866"  # Bias towards correct coordinates
+                                })
+                            
+                            q = urllib.parse.urlencode(query_params)
+                            with urllib.request.urlopen(base + q, timeout=15) as r:
+                                j = json.loads(r.read().decode())
+                            
+                            if j.get("results"):
+                                print(f"DEBUG: Suggestion search '{search_term}' returned {len(j['results'])} results")
+                                all_results.extend(j["results"])
+                                # For spelling corrections, prioritize the first search term results
+                                if search_term != place_input_val and j.get("results"):
+                                    break  # Use the corrected spelling results
+                        except Exception as e:
+                            print(f"DEBUG: Geoapify error for '{search_term}': {e}")
+                            continue
+                    
+                    # Process all results with preference for Jabalpur district Sihora
+                    if all_results:
+                        j = {"results": all_results}
                     
                     if j.get("results"):
+                        # First pass: Look for Jabalpur district Sihora specifically
+                        jabalpur_candidates = []
+                        other_candidates = []
+                        
                         for res in j["results"]:
                             city = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or ""
                             state = res.get("state") or ""
                             country = res.get("country") or ""
+                            county = res.get("county") or ""
+                            result_type = res.get("result_type", "")
                             
                             # Build display string
                             if city and country:  # At minimum need city and country
@@ -3038,7 +3320,26 @@ if place_input_val:
                                     display_str = f"{city}, {country}"
                                 lat = float(res["lat"])
                                 lon = float(res["lon"])
-                                candidates.append((display_str, lat, lon))
+                                
+                                # Prioritize Jabalpur district Sihora with strict matching
+                                district = res.get("district") or res.get("county") or ""
+                                if ("sihora" in city.lower() and 
+                                    ("jabalpur" in district.lower() or "jabalpur" in county.lower()) and
+                                    result_type in ["city", "town", "municipality"]):
+                                    print(f"DEBUG: Found priority Sihora in Jabalpur: {display_str} ({lat}, {lon}) - district: {district}")
+                                    jabalpur_candidates.append((display_str, lat, lon))
+                                else:
+                                    other_candidates.append((display_str, lat, lon))
+                        
+                        # Use Jabalpur candidates first, then others
+                        candidates.extend(jabalpur_candidates)
+                        
+                        # For Sihora searches, add fallback if no Jabalpur district match found
+                        if city_norm == "sehora" and not jabalpur_candidates:
+                            print(f"DEBUG: No Jabalpur district Sihora found, using fallback coordinates")
+                            candidates.append(("Sihora, Jabalpur, Madhya Pradesh, India", 23.4866, 80.1066))
+                        elif not jabalpur_candidates:  # For other searches, use other candidates
+                            candidates.extend(other_candidates[:3])  # Limit others
                 else:
                     # No API key - show fallback suggestions for common cities
                     print(f"DEBUG: No API key, showing fallback suggestions for: {place_input_val}")
