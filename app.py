@@ -2,7 +2,7 @@
 import streamlit as st
 import json, re, urllib.parse, urllib.request
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 from datetime import datetime, date, time, timedelta, timezone
 import os
 from io import BytesIO
@@ -11,12 +11,12 @@ from io import BytesIO
 st.set_page_config(page_title="MRIDAASTRO — Kundali", page_icon="🪔", layout="centered")
 st.title("MRIDAASTRO — Kundali Generator")
 
-# optional background
+# ---------- optional background (if assets exist) ----------
 def _apply_bg():
     try:
         import base64
         from pathlib import Path as _P
-        for p in [ _P("assets/ganesha_bg.png"), _P("assets/login_bg.png"), _P("assets/bg.png") ]:
+        for p in [_P("assets/ganesha_bg.png"), _P("assets/login_bg.png"), _P("assets/bg.png")]:
             if p.exists():
                 b64 = base64.b64encode(p.read_bytes()).decode()
                 st.markdown(f"""
@@ -35,7 +35,6 @@ def _apply_bg():
         pass
 
 _apply_bg()
-
 
 # ============ Secrets / API keys ============
 GEOAPIFY_API_KEY = ""
@@ -81,6 +80,7 @@ class Suggestion:
     lat: float
     lon: float
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def geocode_suggestions(typed: str, api_key: str, limit: int = 7) -> List[Suggestion]:
     """Return suggestions for ambiguous city names (city/town/village only)."""
     out: List[Suggestion] = []
@@ -116,6 +116,7 @@ def geocode_suggestions(typed: str, api_key: str, limit: int = 7) -> List[Sugges
             break
     return out
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
     """
     STRICT geocoding:
@@ -155,7 +156,7 @@ def geocode_strict(place: str, api_key: str) -> Tuple[float, float, str]:
 # ===== Session keys =====
 LAT_KEY = "pob_lat"
 LON_KEY = "pob_lon"
-TZ_KEY = "tz_input"
+TZ_KEY = "tz_input"              # internal state (string like +5.5)
 PLACE_KEY = "place_input"
 CHOICE_IDX_KEY = "place_choice_idx"
 CHOICE_OPTIONS_KEY = "place_choice_options"
@@ -170,7 +171,7 @@ if st.session_state.get(FILL_REQUEST_KEY):
     st.session_state[PLACE_KEY] = st.session_state[FILL_REQUEST_KEY]
     st.session_state[FILL_REQUEST_KEY] = None
 
-# ===== Top row: Name + UTC (UTC is read-only) =====
+# ===== Top row: Name + UTC (UTC is read-only and decoupled from state key) =====
 col1, col2 = st.columns(2)
 with col1:
     name = st.text_input("Name", key="name_input", placeholder="Person Name")
@@ -269,13 +270,11 @@ def compute_chart(jd_ut: float, lat: float, lon: float):
         return {"error": "Swiss Ephemeris not installed"}
     flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
     swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)
-    # Houses (Placidus-like systems need geographic position; 'P' = Placidus)
     try:
         cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, b'P', flags)
         asc = ascmc[0]
     except Exception:
         cusps, ascmc, asc = [], [], None
-    # Planets
     planet_codes = {
         'Su': swe.SUN, 'Mo': swe.MOON, 'Me': swe.MERCURY, 'Ve': swe.VENUS,
         'Ma': swe.MARS, 'Ju': swe.JUPITER, 'Sa': swe.SATURN, 'Ra': swe.MEAN_NODE
@@ -283,11 +282,10 @@ def compute_chart(jd_ut: float, lat: float, lon: float):
     positions = {}
     for k, pcode in planet_codes.items():
         try:
-            lon, latp, dist, speed = swe.calc_ut(jd_ut, pcode, flags)  # returns ecliptic longitude in degrees (sidereal)
-            positions[k] = lon % 360.0
+            elon, latp, dist, speed = swe.calc_ut(jd_ut, pcode, flags)
+            positions[k] = elon % 360.0
         except Exception:
             positions[k] = None
-    # Ketu opposite Rahu
     if positions.get('Ra') is not None:
         positions['Ke'] = (positions['Ra'] + 180.0) % 360.0
     else:
@@ -352,31 +350,33 @@ if generate_clicked:
     tz_str = (st.session_state.get(TZ_KEY, "") or "").strip()
     if not tz_str:
         errors.append("UTC offset not set. (It should auto-populate after selecting the place.)")
+
     if errors:
         for e in errors:
             st.error(e)
     else:
-        # Compute Swiss Ephemeris positions
         tz_hours = parse_tz_float(tz_str)
         if not SWISSEPHEMERIS_AVAILABLE:
             st.error("Swiss Ephemeris is not installed in this environment. Please add 'swisseph' to requirements.txt.")
         else:
-            try:
-                jd_ut = to_jd_ut(dob, tob, tz_hours)
-                chart = compute_chart(jd_ut, float(lat), float(lon))
-                if chart.get("error"):
-                    st.error(chart["error"])
-                else:
-                    # Show quick preview
-                    st.success("Kundali computed successfully.")
-                    st.json({
-                        "JD_UT": jd_ut,
-                        "Ascendant_deg": chart.get("ascendant"),
-                        "Positions": chart.get("positions")
-                    })
-                    # Build DOCX
-                    content = make_docx(name.strip(), place, float(lat), float(lon), tz_str, jd_ut, chart)
-                    default_filename = f"{name.strip().replace(' ', '_')}_Kundali.docx" if name.strip() else "Kundali.docx"
-                    st.download_button("Download Kundali (DOCX)", data=content, file_name=default_filename, mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-            except Exception as e:
-                st.error(f"Computation failed: {e}")
+            with st.spinner("Computing chart..."):
+                try:
+                    jd_ut = to_jd_ut(dob, tob, tz_hours)
+                    chart = compute_chart(jd_ut, float(lat), float(lon))
+                    if chart.get("error"):
+                        st.error(chart["error"])
+                    else:
+                        st.success("Kundali computed successfully.")
+                        st.json({
+                            "JD_UT": jd_ut,
+                            "Ascendant_deg": chart.get("ascendant"),
+                            "Positions": chart.get("positions")
+                        })
+                        # Build DOCX
+                        content = make_docx(name.strip(), place, float(lat), float(lon), tz_str, jd_ut, chart)
+                        # Prefer PersonName_Horoscope per your earlier ask
+                        base = name.strip().replace(" ", "_") or "Kundali"
+                        file_name = f"{base}_Horoscope.docx"
+                        st.download_button("Download Horoscope (DOCX)", data=content, file_name=file_name, mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                except Exception as e:
+                    st.error(f"Computation failed: {e}")
