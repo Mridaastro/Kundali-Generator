@@ -220,22 +220,14 @@ import pandas as pd
 import pytz
 import streamlit as st
 
-# === POB pending-commit apply (before widgets render) ===
+# === POB pending-commit apply (before widgets render) — DO NOT compute UTC here ===
 if 'pob_pending_commit' in st.session_state:
     _p = st.session_state.pop('pob_pending_commit')
-    try:
-        st.session_state['place_input'] = _p.get('display','')
-    except Exception:
-        pass
+    st.session_state['place_input'] = _p.get('display', '')
     st.session_state['pob_display'] = _p.get('display')
     st.session_state['pob_lat'] = _p.get('lat')
     st.session_state['pob_lon'] = _p.get('lon')
-    try:
-        _off = get_timezone_offset_simple(st.session_state['pob_lat'], st.session_state['pob_lon'])
-        st.session_state['tz_input'] = f"{'+' if _off>=0 else '-'}{int(abs(_off)):02d}:{int(round((abs(_off)%1)*60)):02d}"
-    except Exception:
-        st.session_state['tz_input'] = "+00:00"
-    st.session_state['last_place_checked'] = st.session_state.get('place_input','')
+    st.session_state['last_place_checked'] = _p.get('display', '')
 # === end pending-commit ===
 
 # === App background helper (for authenticated pages) ===
@@ -1064,7 +1056,6 @@ def search_places(query: str, api_key: str, limit: int = 6):
             if disp and isinstance(lat,(int,float)) and isinstance(lon,(int,float)):
                 if len([p for p in disp.split(",") if p.strip()]) >= 3:
                     out.append((disp, float(lat), float(lon)))
-        # dedupe preserving order
         seen=set(); uniq=[]
         for disp, la, lo in out:
             if disp not in seen:
@@ -1082,7 +1073,8 @@ def get_timezone_offset_simple(lat, lon):
 
         # Hardcoded timezone offsets to avoid pytz issues
         timezone_offsets = {
-            'Asia/Kolkata': 5.5,  # India
+            'Asia/Kolkata': 5.5,  # India,
+            'Asia/Calcutta': 5.5,  # alias
             'Asia/Dubai': 4.0,  # UAE
             'Asia/Karachi': 5.0,  # Pakistan
             'Asia/Dhaka': 6.0,  # Bangladesh
@@ -2620,7 +2612,7 @@ if form_changed and last_form_values:  # Don't clear on first load
 st.session_state['last_form_values'] = current_form_values
 
 
-# POB handling with one-time dropdown + commit
+# POB handling with one-time dropdown + commit (no UTC computation here)
 place_input_val = st.session_state.get('place_input', '').strip()
 committed_val = st.session_state.get('last_place_checked','').strip()
 
@@ -2638,8 +2630,7 @@ if place_input_val and place_input_val != committed_val:
                 disp, la, lo = cands[0]
                 _commit_place(disp, la, lo)
             else:
-                # Render dropdown in same column region as Place input
-                st.write("")  # spacer
+                st.write("")  # spacer below the POB textbox
                 _options = ["Select from dropdown"] + [c[0] for c in cands]
                 _choice = st.selectbox("Select Place (City, State, Country)",
                                        _options, index=0, key="pob_choice")
@@ -2648,6 +2639,21 @@ if place_input_val and place_input_val != committed_val:
                     if sel:
                         disp, la, lo = sel
                         _commit_place(disp, la, lo)
+    except Exception:
+        pass
+
+# --- Compute UTC now that helpers/imports are loaded ---
+def _hours_to_hhmm(off: float) -> str:
+    sign = '+' if off >= 0 else '-'
+    total = int(round(abs(off) * 60))
+    hh, mm = divmod(total, 60)
+    return f"{sign}{hh:02d}:{mm:02d}"
+
+if st.session_state.get('pob_lat') is not None and st.session_state.get('pob_lon') is not None:
+    try:
+        off = get_timezone_offset_simple(float(st.session_state['pob_lat']),
+                                         float(st.session_state['pob_lon']))
+        st.session_state['tz_input'] = _hours_to_hhmm(off)
     except Exception:
         pass
 
