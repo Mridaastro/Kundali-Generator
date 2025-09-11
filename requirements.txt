@@ -1,10 +1,12 @@
 streamlit
-pandas
-pyswisseph
-requests
+swisseph
+python-docx
 timezonefinder
 pytz
-python-docx
-matplotlib
+requests
+pandas
+pillow
 google-auth
 google-auth-oauthlib
+matplotlib
+docx
