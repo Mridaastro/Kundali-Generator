@@ -5,6 +5,35 @@
 APP_TITLE = "MRIDAASTRO"
 APP_TAGLINE = "In the light of divine, let your soul journey shine"
 
+def decimal_to_dms(decimal_deg, is_latitude=True):
+    """
+    Convert decimal degrees to DMS format with direction (N/S/E/W).
+    Example: 14.1661 -> "14°09′58″N" for latitude
+    """
+    is_positive = decimal_deg >= 0
+    abs_deg = abs(decimal_deg)
+    
+    degrees = int(abs_deg)
+    minutes_float = (abs_deg - degrees) * 60
+    minutes = int(minutes_float)
+    seconds = round((minutes_float - minutes) * 60)
+    
+    # Handle rounding overflow
+    if seconds == 60:
+        seconds = 0
+        minutes += 1
+    if minutes == 60:
+        minutes = 0
+        degrees += 1
+    
+    # Determine direction
+    if is_latitude:
+        direction = 'N' if is_positive else 'S'
+    else:
+        direction = 'E' if is_positive else 'W'
+    
+    return f"{degrees}°{minutes:02d}′{seconds:02d}″{direction}"
+
 # ===== Background Template Helper (stable image) =====
 import os
 from io import BytesIO
@@ -2786,7 +2815,9 @@ with row1c2:
     if st.session_state.get('pob_lat') and st.session_state.get('pob_lon'):
         lat_val = st.session_state['pob_lat']
         lon_val = st.session_state['pob_lon']
-        st.caption(f"📍 Coordinates: {lat_val:.4f}°, {lon_val:.4f}°")
+        lat_dms = decimal_to_dms(lat_val, is_latitude=True)
+        lon_dms = decimal_to_dms(lon_val, is_latitude=False)
+        st.caption(f"📍 Coordinates: {lat_dms} {lon_dms}")
 
 # Clear previous generation if any field changes
 current_form_values = {
@@ -2909,6 +2940,7 @@ if place_input_val:
                     fallback_suggestions = {
                         'mumbai': [("Mumbai, Maharashtra, India", 19.0760, 72.8777)],
                         'delhi': [("Delhi, Delhi, India", 28.7041, 77.1025)],
+                        'dubai': [("Dubai, Dubai, United Arab Emirates", 25.2048, 55.2708)],  # API coordinates
                         'london': [("London, England, United Kingdom", 51.5074, -0.1278)],
                         'new york': [("New York, New York, United States", 40.7128, -74.0060)],
                         'paris': [("Paris, Île-de-France, France", 48.8566, 2.3522)],
@@ -3030,10 +3062,22 @@ if generate_clicked or st.session_state.get('submitted'):
         any_err = True
     else:
         try:
-            _tzv = float(_tz)
+            # Parse UTC offset in format +05:30 or -04:00 to decimal hours
+            _tz_clean = _tz.strip()
+            if ':' in _tz_clean:
+                # Handle +05:30 format
+                sign = 1 if _tz_clean.startswith('+') else -1
+                _tz_clean = _tz_clean.lstrip('+-')
+                hours, minutes = map(int, _tz_clean.split(':'))
+                _tzv = sign * (hours + minutes/60.0)
+            else:
+                # Handle plain decimal format like 5.5
+                _tzv = float(_tz_clean)
+            
             if _tzv < -12 or _tzv > 14:
                 any_err = True
         except Exception as e:
+            print(f"DEBUG: UTC offset validation error: {e} for value: {_tz}")
             any_err = True
 
     if any_err:
@@ -3081,7 +3125,17 @@ if can_generate:
         dt_local = datetime.datetime.combine(dob, tob).replace(tzinfo=None)
         used_manual = False
         if tz_override.strip():
-            tz_hours = float(tz_override)
+            # Parse UTC offset in format +05:30 or -04:00 to decimal hours
+            _tz_clean = tz_override.strip()
+            if ':' in _tz_clean:
+                # Handle +05:30 format
+                sign = 1 if _tz_clean.startswith('+') else -1
+                _tz_clean = _tz_clean.lstrip('+-')
+                hours, minutes = map(int, _tz_clean.split(':'))
+                tz_hours = sign * (hours + minutes/60.0)
+            else:
+                # Handle plain decimal format like 5.5
+                tz_hours = float(_tz_clean)
             dt_utc = dt_local - datetime.timedelta(hours=tz_hours)
             tzname = f"UTC{tz_hours:+.2f} (manual)"
             used_manual = True
