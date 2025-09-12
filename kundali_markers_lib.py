@@ -97,6 +97,43 @@ def _is_combust_d9_same_nsign(code, sidelons):
     pl_n  = navamsa_sign_from_lon_sid(sidelons[code])
     return sun_n == pl_n
 
+def _calculate_planet_status(code, lon, sidelons, chart_type='D1'):
+    """
+    Calculate unified planet status flags for both D1 (Rasi) and D9 (Navamsa) charts.
+    
+    Args:
+        code: Planet code (e.g., 'Su', 'Mo', etc.)
+        lon: Planet longitude
+        sidelons: Dictionary of all planet longitudes  
+        chart_type: 'D1' for Rasi chart, 'D9' for Navamsa chart
+    
+    Returns:
+        Dictionary with status flags: {'self', 'exalt', 'debil', 'comb', 'varg'}
+    """
+    if chart_type == 'D1':
+        # For D1 (Rasi/Lagna) chart - use rasi sign
+        sign = _rasi_sign(lon)
+        is_cb = _is_combust_d1(code, sidelons)
+        is_vg = (_rasi_sign(lon) == navamsa_sign_from_lon_sid(lon))
+    else:  # D9
+        # For D9 (Navamsa) chart - use navamsa sign
+        sign = navamsa_sign_from_lon_sid(lon)
+        is_cb = _is_combust_d9_same_nsign(code, sidelons)
+        is_vg = (_rasi_sign(lon) == navamsa_sign_from_lon_sid(lon))
+    
+    # Common logic for all charts
+    is_self = sign in SELF_SIGNS.get(code, set())
+    is_ex   = (code not in ('Ra','Ke')) and (EXALT_SIGN.get(code) == sign)
+    is_de   = (code not in ('Ra','Ke')) and (DEBIL_SIGN.get(code) == sign)
+    
+    return {
+        'self': is_self,
+        'exalt': is_ex, 
+        'debil': is_de,
+        'comb': is_cb,
+        'varg': is_vg
+    }
+
 def build_rasi_house_planets(sidelons, lagna_sign, begins_sid=None):
     """Build rasi house planets with longitude data for precise positioning."""
     house_map = {i: [] for i in range(1, 13)}
@@ -110,20 +147,19 @@ def build_rasi_house_planets(sidelons, lagna_sign, begins_sid=None):
         else:
             h = ((rasi - lagna_sign) % 12) + 1
             
-        is_self = rasi in SELF_SIGNS.get(code, set())
-        is_ex   = (code not in ('Ra','Ke')) and (EXALT_SIGN.get(code) == rasi)
-        is_de   = (code not in ('Ra','Ke')) and (DEBIL_SIGN.get(code) == rasi)
-        is_cb   = _is_combust_d1(code, sidelons)
-        is_vg   = (rasi == navamsa_sign_from_lon_sid(lon))
+        # Use unified status calculation for D1 chart
+        status = _calculate_planet_status(code, lon, sidelons, chart_type='D1')
+        
         base = HN_ABBR[code]; disp = base
-        if is_ex: disp += UP_ARROW
-        if is_de: disp += DOWN_ARROW
-        if is_cb: disp += COMBUST
+        if status['exalt']: disp += UP_ARROW
+        if status['debil']: disp += DOWN_ARROW
+        if status['comb']: disp += COMBUST
+        # Vargottam symbol handled separately in app.py to avoid duplication
         house_map[h].append({
             'txt': base,
             'disp': disp,
             'lon': lon,  # Include longitude for precise positioning
-            'flags': {'self':is_self,'exalt':is_ex,'debil':is_de,'comb':is_cb,'varg':is_vg}
+            'flags': status
         })
     return house_map
 
@@ -132,17 +168,16 @@ def build_navamsa_house_planets(sidelons, nav_lagna_sign):
     for code in HN_ABBR.keys():
         lon = sidelons[code]; nsign = navamsa_sign_from_lon_sid(lon)
         h = ((nsign - nav_lagna_sign) % 12) + 1
-        is_self = nsign in SELF_SIGNS.get(code, set())
-        is_ex   = (code not in ('Ra','Ke')) and (EXALT_SIGN.get(code) == nsign)
-        is_de   = (code not in ('Ra','Ke')) and (DEBIL_SIGN.get(code) == nsign)
-        is_cb   = _is_combust_d9_same_nsign(code, sidelons)
-        is_vg   = (_rasi_sign(lon) == nsign)
+        
+        # Use unified status calculation for D9 chart
+        status = _calculate_planet_status(code, lon, sidelons, chart_type='D9')
+        
         base = HN_ABBR[code]; disp = base
-        if is_ex: disp += UP_ARROW
-        if is_de: disp += DOWN_ARROW
-        if is_cb: disp += COMBUST
-        house_map[h].append({'txt': base,'disp':disp,
-            'flags':{'self':is_self,'exalt':is_ex,'debil':is_de,'comb':is_cb,'varg':is_vg}})
+        if status['exalt']: disp += UP_ARROW
+        if status['debil']: disp += DOWN_ARROW
+        if status['comb']: disp += COMBUST
+        # Vargottam symbol handled separately in app.py to avoid duplication
+        house_map[h].append({'txt': base,'disp':disp, 'flags': status})
     return house_map
 
 def calculate_precise_planet_coordinates(house_planets, begins_sid, mids_sid, size_pt=220):
@@ -158,39 +193,38 @@ def calculate_precise_planet_coordinates(house_planets, begins_sid, mids_sid, si
     Returns:
         Dict mapping house -> list of (x, y) coordinates for planets in that house
     """
-    S = size_pt
+    # Import enhanced positioning functions from chalit_kundali_vml
+    from chalit_kundali_vml import (_compute_cusp_anchors, _baseline_for_house, 
+                                    _apply_cusp_positioning, _interpolate, 
+                                    _arc_fraction, _house_polys, _n360)
     
-    # Define house center coordinates and boundaries for North Indian kundali
-    house_centers = {
-        1: (S/2, S/8),     # Top center
-        2: (3*S/4, S/4),   # Top right  
-        3: (7*S/8, S/2),   # Right center
-        4: (3*S/4, 3*S/4), # Bottom right
-        5: (S/2, 7*S/8),   # Bottom center
-        6: (S/4, 3*S/4),   # Bottom left
-        7: (S/8, S/2),     # Left center
-        8: (S/4, S/4),     # Top left
-        9: (S/2, S/2.7),   # Inner top center
-        10: (S/1.35, S/2), # Inner right center
-        11: (S/2, S/1.35), # Inner bottom center  
-        12: (S/2.7, S/2)   # Inner left center
-    }
+    S = float(size_pt)
     
-    # Define house boundaries for positioning (start, mid, end positioning areas)
-    house_bounds = {
-        1: {'start': (S/2, S/16), 'mid': (S/2, S/8), 'end': (S/2, 3*S/16)},
-        2: {'start': (5*S/8, S/4), 'mid': (3*S/4, S/4), 'end': (7*S/8, S/4)},
-        3: {'start': (7*S/8, 3*S/8), 'mid': (7*S/8, S/2), 'end': (7*S/8, 5*S/8)},
-        4: {'start': (7*S/8, 3*S/4), 'mid': (3*S/4, 3*S/4), 'end': (5*S/8, 3*S/4)},
-        5: {'start': (S/2, 15*S/16), 'mid': (S/2, 7*S/8), 'end': (S/2, 13*S/16)},
-        6: {'start': (3*S/8, 3*S/4), 'mid': (S/4, 3*S/4), 'end': (S/8, 3*S/4)},
-        7: {'start': (S/8, 5*S/8), 'mid': (S/8, S/2), 'end': (S/8, 3*S/8)},
-        8: {'start': (S/8, S/4), 'mid': (S/4, S/4), 'end': (3*S/8, S/4)},
-        9: {'start': (S/2, S/3.5), 'mid': (S/2, S/2.7), 'end': (S/2, S/2.2)},
-        10: {'start': (S/1.6, S/2), 'mid': (S/1.35, S/2), 'end': (S/1.15, S/2)},
-        11: {'start': (S/2, S/2.2), 'mid': (S/2, S/1.35), 'end': (S/2, S/1.1)},
-        12: {'start': (S/3.5, S/2), 'mid': (S/2.7, S/2), 'end': (S/2.2, S/2)}
-    }
+    # Enhanced positioning parameters (configurable, no hardcoding)
+    cusp_snap_deg = 0.5   # Snap to corner/cusp if within this many degrees
+    cusp_bias_deg = 2.0   # Bias toward corner/cusp if within this many degrees
+    
+    houses = _house_polys(S)
+    
+    # Pre-compute baselines and cusp anchors for all houses
+    baselines = {}
+    cusp_anchors = {}
+    mid_fractions = {}
+    
+    for h in range(1, 13):
+        # Compute cusp anchors first to get proper start/end positions
+        cusp_anchors[h] = _compute_cusp_anchors(houses[h], S, h)
+        start_anchor, end_anchor = cusp_anchors[h]
+        
+        # Create baseline oriented with cusp direction
+        p1, p2 = _baseline_for_house(houses[h], S, h, start_anchor, end_anchor)
+        baselines[h] = (p1, p2)
+        
+        # Calculate mid fraction for this house
+        start = begins_sid[h] if h < len(begins_sid) else 0
+        end = begins_sid[1] if h == 12 else (begins_sid[h+1] if h+1 < len(begins_sid) else 0)
+        mid = mids_sid[h] if h < len(mids_sid) else 0
+        mid_fractions[h] = _arc_fraction(start, end, mid)
     
     planet_coords = {}
     
@@ -201,48 +235,30 @@ def calculate_precise_planet_coordinates(house_planets, begins_sid, mids_sid, si
         house_planets_list = house_planets[house_num]
         planet_positions = []
         
-        # Normalize Chalit arrays to 1-based dicts for safe access
-        B, M = _normalize_chalit_arrays(begins_sid, mids_sid)
-        
-        # Get Chalit boundaries for this house (now safely normalized)
-        begin_lon = B[house_num] % 360
-        mid_lon = M[house_num] % 360
-        end_lon = B[(house_num % 12) + 1] % 360
-        
-        bounds = house_bounds.get(house_num, house_centers[house_num])
+        # Get house boundaries for enhanced positioning
+        p1, p2 = baselines[house_num]
+        start = begins_sid[house_num] if house_num < len(begins_sid) else 0
+        end = begins_sid[1] if house_num == 12 else (begins_sid[house_num+1] if house_num+1 < len(begins_sid) else 0)
         
         for planet_info in house_planets_list:
             if not isinstance(planet_info, dict) or 'lon' not in planet_info:
-                # Default positioning for planets without longitude data
-                planet_positions.append(house_centers[house_num])
+                # Default to baseline center for planets without longitude data
+                planet_positions.append(_interpolate(p1, p2, 0.5))
                 continue
                 
-            planet_lon = planet_info['lon']
+            planet_lon = _n360(planet_info['lon'])
             
-            # Normalize longitudes to 0-360 range
-            begin_lon = begin_lon % 360
-            mid_lon = mid_lon % 360  
-            end_lon = end_lon % 360
-            planet_lon = planet_lon % 360
+            # Calculate position fraction within the house using arc_fraction
+            t = _arc_fraction(start, end, planet_lon)
             
-            # Determine if planet is in start-to-mid or mid-to-end segment
-            start_x, start_y = bounds['start']
-            mid_x, mid_y = bounds['mid']  
-            end_x, end_y = bounds['end']
+            # Apply enhanced cusp positioning with mid-split logic
+            chalit_xy = _apply_cusp_positioning(
+                (p1, p2), t, mid_fractions[house_num], cusp_anchors[house_num],
+                start, end, planet_lon, cusp_snap_deg, cusp_bias_deg
+            )
             
-            # Calculate position ratio within the house
-            if _angle_between(begin_lon, planet_lon, mid_lon):
-                # Planet is between start and mid bhava
-                ratio = _angle_ratio(begin_lon, planet_lon, mid_lon)
-                x = start_x + ratio * (mid_x - start_x)
-                y = start_y + ratio * (mid_y - start_y)
-            else:
-                # Planet is between mid and end bhava  
-                ratio = _angle_ratio(mid_lon, planet_lon, end_lon)
-                x = mid_x + ratio * (end_x - mid_x)
-                y = mid_y + ratio * (end_y - mid_y)
-                
-            planet_positions.append((x, y))
+            print(f"DEBUG: Enhanced positioning - House {house_num}, Planet lon={planet_lon:.1f}, Position=({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
+            planet_positions.append(chalit_xy)
             
         planet_coords[house_num] = planet_positions
         
@@ -307,13 +323,16 @@ def kundali_single_box(size_pt=220, house_planets=None, begins_sid=None, mids_si
     stroke_color = color  # Use original color for borders
     fill_color = lighten_color(color, 0.7)   # Light variant for fill
     
-    rect=f'<v:rect style="width:{S}pt;height:{S}pt" strokecolor="{stroke_color}" strokeweight="2.5pt" fillcolor="{fill_color}"/>'
-    diag1=f'<v:line from="0,0" to="{S}pt,{S}pt" strokecolor="{stroke_color}" strokeweight="1.5pt"/>'
-    diag2=f'<v:line from="{S}pt,0" to="0,{S}pt" strokecolor="{stroke_color}" strokeweight="1.5pt"/>'
-    mid1=f'<v:line from="{S/2}pt,0" to="{S}pt,{S/2}pt" strokecolor="{stroke_color}" strokeweight="1.5pt"/>'
-    mid2=f'<v:line from="{S}pt,{S/2}pt" to="{S/2}pt,{S}pt" strokecolor="{stroke_color}" strokeweight="1.5pt"/>'
-    mid3=f'<v:line from="{S/2}pt,{S}pt" to="0,{S/2}pt" strokecolor="{stroke_color}" strokeweight="1.5pt"/>'
-    mid4=f'<v:line from="0,{S/2}pt" to="{S/2}pt,0" strokecolor="{stroke_color}" strokeweight="1.5pt"/>'
+    # Make borders darker and thicker for better visibility
+    dark_stroke_color = darken_color(color, 0.2)  # Same as section bar color
+    
+    rect=f'<v:rect style="width:{S}pt;height:{S}pt" strokecolor="{dark_stroke_color}" strokeweight="3.5pt" fillcolor="{fill_color}"/>'
+    diag1=f'<v:line from="0,0" to="{S}pt,{S}pt" strokecolor="{dark_stroke_color}" strokeweight="2.5pt"/>'
+    diag2=f'<v:line from="{S}pt,0" to="0,{S}pt" strokecolor="{dark_stroke_color}" strokeweight="2.5pt"/>'
+    mid1=f'<v:line from="{S/2}pt,0" to="{S}pt,{S/2}pt" strokecolor="{dark_stroke_color}" strokeweight="2.5pt"/>'
+    mid2=f'<v:line from="{S}pt,{S/2}pt" to="{S/2}pt,{S}pt" strokecolor="{dark_stroke_color}" strokeweight="2.5pt"/>'
+    mid3=f'<v:line from="{S/2}pt,{S}pt" to="0,{S/2}pt" strokecolor="{dark_stroke_color}" strokeweight="2.5pt"/>'
+    mid4=f'<v:line from="0,{S/2}pt" to="{S/2}pt,0" strokecolor="{dark_stroke_color}" strokeweight="2.5pt"/>'
     
     # Default fixed coordinates (fallback when precise positioning is not available)
     coords={1:(S/2,S/8),2:(3*S/4,S/4),3:(7*S/8,S/2),4:(3*S/4,3*S/4),
@@ -392,11 +411,11 @@ def kundali_single_box(size_pt=220, house_planets=None, begins_sid=None, mids_si
                 
                 # Draw planetary status markers using correct flag keys
                 if flags.get('self'):
-                    overlays.append(f'<v:oval style="position:absolute;left:{cx-r_circle}pt;top:{cy-6.0}pt;width:{2*r_circle}pt;height:{2*r_circle}pt;z-index:4" strokecolor="black" strokeweight="1pt" fillcolor="none"/>')
+                    overlays.append(f'<v:oval style="position:absolute;left:{cx-r_circle}pt;top:{cy-6.0}pt;width:{2*r_circle}pt;height:{2*r_circle}pt;z-index:4" strokecolor="black" strokeweight="1.5pt" fillcolor="none"/>')
                 if flags.get('exalt'):  # Fixed: 'exalt' not 'exalted'
-                    overlays.append(f'<v:oval style="position:absolute;left:{cx-r_circle}pt;top:{cy-6.0}pt;width:{2*r_circle}pt;height:{2*r_circle}pt;z-index:4" strokecolor="green" strokeweight="1.5pt" fillcolor="none"/>')
+                    overlays.append(f'<v:oval style="position:absolute;left:{cx-r_circle}pt;top:{cy-6.0}pt;width:{2*r_circle}pt;height:{2*r_circle}pt;z-index:4" strokecolor="black" strokeweight="1.5pt" fillcolor="none"/>')
                 if flags.get('debil'):  # Fixed: 'debil' not 'debilitated'
-                    overlays.append(f'<v:oval style="position:absolute;left:{cx-r_circle}pt;top:{cy-6.0}pt;width:{2*r_circle}pt;height:{2*r_circle}pt;z-index:4" strokecolor="red" strokeweight="1.5pt" fillcolor="none"/>')
+                    overlays.append(f'<v:oval style="position:absolute;left:{cx-r_circle}pt;top:{cy-6.0}pt;width:{2*r_circle}pt;height:{2*r_circle}pt;z-index:4" strokecolor="black" strokeweight="1.5pt" fillcolor="none"/>')
                 if flags.get('comb'):   # Fixed: 'comb' not 'combust'
                     overlays.append(f'<v:oval style="position:absolute;left:{cx-2}pt;top:{cy-2}pt;width:4pt;height:4pt;z-index:4" strokecolor="orange" strokeweight="1pt" fillcolor="orange"/>')
                 if flags.get('varg'):
