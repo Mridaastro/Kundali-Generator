@@ -159,7 +159,7 @@ def get_color_variants(base_color):
         'base': hex_to_rgb_hex(base_color),
         'light': hex_to_rgb_hex(lighten_color(base_color, 0.7)),  # Very light for odd rows, kundali background
         'dark': hex_to_rgb_hex(darken_color(base_color, 0.3)),    # Dark for borders/headers
-        'medium': hex_to_rgb_hex(lighten_color(base_color, 0.4))  # Medium for section bars
+        'medium': hex_to_rgb_hex(lighten_color(base_color, 0.3))  # Medium for section bars
     }
 
 # apply_color_scheme function removed - VML color theming now handled at runtime during generation
@@ -3678,6 +3678,10 @@ with settings_row_col1:
         # Color scheme selection
         st.markdown("**Color Scheme**")
         color_options = {
+            "Pink": "#ff0049",
+            "Green": "#48ff00", 
+            "Purple": "#a020f0",
+            "Yellow": "ffb700",
             "Orange (Default)": "#FF6600",
             "Pink Lace": "#F0D7F5", 
             "Mint": "#99EDC3",
