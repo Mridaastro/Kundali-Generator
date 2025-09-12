@@ -3952,11 +3952,16 @@ if can_generate:
         }
         
         color_options = {
-            "Orange (Default)": "#FF6600",
+             "Orange (Default)": "#FF6600",
             "Pink Lace": "#F0D7F5", 
             "Mint": "#99EDC3",
             "Coral": "#FE7D6A",
-            "Rose": "#FC94AF"
+            "Rose": "#FC94AF",
+            #newly added
+             "Pink": "#ff0049",
+            "Green": "#48ff00", 
+            "Purple": "#a020f0",
+            "Yellow": "ffb700"
         }
         
         # Get selected template and color from session state
