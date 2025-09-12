@@ -160,8 +160,8 @@ def get_color_variants(base_color):
     return {
         'base': hex_to_rgb_hex(base_color),
         'light': hex_to_rgb_hex(lighten_color(base_color, 0.7)),  # Very light for odd rows, kundali background
-        'dark': hex_to_rgb_hex(darken_color(base_color, 0.3)),    # Dark for borders/headers
-        'medium': hex_to_rgb_hex(lighten_color(base_color, 0.2))  # Medium for section bars
+        'dark': hex_to_rgb_hex(darken_color(base_color, 0.65)),    # Dark for borders/headers
+        'medium': hex_to_rgb_hex(darken_color(base_color, 0.5))  # Medium for section bars
     }
 
 # apply_color_scheme function removed - VML color theming now handled at runtime during generation
