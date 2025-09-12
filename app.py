@@ -3661,10 +3661,10 @@ with settings_row_col1:
         st.markdown("**Document Background Template**")
         background_options = {
             "Default Template": "bg_template.docx",
-            "Background Style 1": "background_1_1757647705677.docx", 
-            "Background Style 2": "background_2_1757647705678.docx",
-            "Background Style 3": "background_3_1757647705678.docx",
-            "Background Style 4": "background_4_1757647705676.docx"
+            "Background Style 1": "background_1.docx", 
+            "Background Style 2": "background_2.docx",
+            "Background Style 3": "background_3.docx",
+            "Background Style 4": "background_4.docx"
         }
         
         selected_background = st.selectbox(
