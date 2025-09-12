@@ -2,8 +2,6 @@
 # This file is intended as the new stable base to build further tweaks.
 # Changes: None (byte-for-byte baseline), aside from this banner.
 
-
-
 APP_TITLE = "MRIDAASTRO"
 APP_TAGLINE = "In the light of divine, let your soul journey shine"
 
@@ -159,9 +157,9 @@ def get_color_variants(base_color):
     """Get all color variants needed for comprehensive theming"""
     return {
         'base': hex_to_rgb_hex(base_color),
-        'light': hex_to_rgb_hex(lighten_color(base_color, 0.7)),  # Very light for odd rows, kundali background
-        'dark': hex_to_rgb_hex(darken_color(base_color, 0.4)),    # Dark for borders/headers
-        'medium': hex_to_rgb_hex(darken_color(base_color, 0.4))  # Medium for section bars
+        'light': hex_to_rgb_hex(lighten_color(base_color, 0.9)),  # Very light for odd rows, kundali background
+        'dark': hex_to_rgb_hex(darken_color(base_color, 0.18)),    # Dark for borders/headers
+        'medium': hex_to_rgb_hex(darken_color(base_color, 0.65))  # Medium for section bars
     }
 
 # apply_color_scheme function removed - VML color theming now handled at runtime during generation
