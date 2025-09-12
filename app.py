@@ -3660,7 +3660,7 @@ with settings_row_col1:
         # Background template selection
         st.markdown("**Kundali Skin**")
         background_options = {
-            "Default Background": "bg_template_1757267865435",
+            "Default Template": "bg_template_1757267865435",
             "Background Style 1": "background_1_1757647705677.docx", 
             "Background Style 2": "background_2_1757647705678.docx",
             "Background Style 3": "background_3_1757647705678.docx",
