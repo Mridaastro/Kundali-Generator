@@ -2,6 +2,8 @@
 # This file is intended as the new stable base to build further tweaks.
 # Changes: None (byte-for-byte baseline), aside from this banner.
 
+
+
 APP_TITLE = "MRIDAASTRO"
 APP_TAGLINE = "In the light of divine, let your soul journey shine"
 
@@ -159,7 +161,7 @@ def get_color_variants(base_color):
         'base': hex_to_rgb_hex(base_color),
         'light': hex_to_rgb_hex(lighten_color(base_color, 0.7)),  # Very light for odd rows, kundali background
         'dark': hex_to_rgb_hex(darken_color(base_color, 0.3)),    # Dark for borders/headers
-        'medium': hex_to_rgb_hex(lighten_color(base_color, 0.3))  # Medium for section bars
+        'medium': hex_to_rgb_hex(lighten_color(base_color, 0.2))  # Medium for section bars
     }
 
 # apply_color_scheme function removed - VML color theming now handled at runtime during generation
@@ -3683,12 +3685,7 @@ with settings_row_col1:
             "Pink Lace": "#F0D7F5", 
             "Mint": "#99EDC3",
             "Coral": "#FE7D6A",
-            "Rose": "#FC94AF",
-            #newly added
-             "Pink": "#ff0049",
-            "Green": "#48ff00", 
-            "Purple": "#a020f0",
-            "Yellow": "ffb700"
+            "Rose": "#FC94AF"
         }
         
         selected_color = st.selectbox(
@@ -3956,12 +3953,7 @@ if can_generate:
             "Pink Lace": "#F0D7F5", 
             "Mint": "#99EDC3",
             "Coral": "#FE7D6A",
-            "Rose": "#FC94AF",
-            #newly added
-             "Pink": "#ff0049",
-            "Green": "#48ff00", 
-            "Purple": "#a020f0",
-            "Yellow": "ffb700"
+            "Rose": "#FC94AF"
         }
         
         # Get selected template and color from session state
