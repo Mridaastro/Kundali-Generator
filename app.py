@@ -3678,15 +3678,17 @@ with settings_row_col1:
         # Color scheme selection
         st.markdown("**Color Scheme**")
         color_options = {
-            "Pink": "#ff0049",
-            "Green": "#48ff00", 
-            "Purple": "#a020f0",
-            "Yellow": "ffb700",
+           
             "Orange (Default)": "#FF6600",
             "Pink Lace": "#F0D7F5", 
             "Mint": "#99EDC3",
             "Coral": "#FE7D6A",
-            "Rose": "#FC94AF"
+            "Rose": "#FC94AF",
+            #newly added
+             "Pink": "#ff0049",
+            "Green": "#48ff00", 
+            "Purple": "#a020f0",
+            "Yellow": "ffb700"
         }
         
         selected_color = st.selectbox(
