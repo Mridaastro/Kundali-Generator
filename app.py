@@ -3658,9 +3658,9 @@ settings_row_col1, settings_row_col2 = st.columns([1, 1])
 with settings_row_col1:
     with st.expander("🎨 Advanced Settings", expanded=False):
         # Background template selection
-        st.markdown("**Document Background Template**")
+        st.markdown("**Kundali Skin**")
         background_options = {
-            "Default Template": "bg_template.docx",
+            "Default Background": "bg_template_1757267865435",
             "Background Style 1": "background_1_1757647705677.docx", 
             "Background Style 2": "background_2_1757647705678.docx",
             "Background Style 3": "background_3_1757647705678.docx",
