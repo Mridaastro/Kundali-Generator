@@ -229,8 +229,16 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
     sy = max(pad, min(sy, S - pad))
     return (sx, sy)
 
-def _planet_label(code: str) -> str:
-    return HN_ABBR.get(code, code)
+def _planet_label(code: str, flags_by_planet=None) -> str:
+    base = HN_ABBR.get(code, code)
+    if flags_by_planet and code in flags_by_planet:
+        fl = flags_by_planet[code]
+        if fl.get("exalted"): base += "↑"
+        if fl.get("debilitated"): base += "↓"
+        if fl.get("combust"): base += "^"
+        if fl.get("self"): base += "Ⓢ"
+        if fl.get("vargottama"): base += "ᵛ"
+    return base
 
 def render_kundali_chalit(
     size_pt: float,
@@ -238,6 +246,7 @@ def render_kundali_chalit(
     sidelons: Dict[str, float],     # Su,Mo,Ma,Me,Ju,Ve,Sa,Ra,Ke in degrees 0..360 (sidereal)
     begins_sid: List[float],         # 1-based BhavBegin sidereal (index 1..12)
     mids_sid: List[float],           # 1-based Bhava Madhya sidereal (index 1..12)
+    flags_by_planet: dict | None = None,           # 1-based Bhava Madhya sidereal (index 1..12)
     pair_threshold_deg: float = 6.0,
     color: str = "#FF6600",          # User-selected color for theming
     cusp_snap_deg: float = 0.5,      # Snap to corner/cusp if within this many degrees
@@ -347,7 +356,7 @@ def render_kundali_chalit(
                 print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
 
         placements.append(dict(
-            code=code, label=_planet_label(code),
+            code=code, label=_planet_label(code, flags_by_planet),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
             disp_xy=disp_xy, eff_xy=effective_xy,
             shift=shift_arrow
