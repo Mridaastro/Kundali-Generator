@@ -418,8 +418,7 @@ def render_kundali_chalit(
         </v:rect>''')
         (x1,y),(x2,_) = baselines[h]
         shapes.append(f'<v:line style="position:absolute;z-index:5" from="{x1},{y}" to="{x2},{y}" strokecolor="#000000" strokeweight="0.75pt"/>')
-        mx,my = _interpolate((x1,y),(x2,y),0.5)
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{mx},{y-3}" to="{mx},{y+3}" strokecolor="#000000" strokeweight="0.5pt"/>')
+        # mid tick removed as per requirement
 
     # Planet markers + shift arrows
     mark_w, mark_h = 16, 12
