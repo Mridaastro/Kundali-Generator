@@ -3701,18 +3701,18 @@ with a_m:
                 }
         
                 selected_color = st.selectbox(
-                    "Choose Color Scheme", 
+                    "Color Scheme",
                     options=list(color_options.keys()),
-                    index=0,  # Default to orange
+                    index=0,
                     key="color_scheme",
                     label_visibility="collapsed"
-                
+                )
 if generate_clicked:
-        print("DEBUG: Generate Kundali button clicked!")
-        st.session_state['generate_clicked'] = True
-        st.session_state['submitted'] = True
-        print("DEBUG: About to rerun after button click")
-        st.rerun()  # Immediate rerun to show validation
+    print("DEBUG: Generate Kundali button clicked!")
+    st.session_state['generate_clicked'] = True
+    st.session_state['submitted'] = True
+    print("DEBUG: About to rerun after button click")
+    st.rerun()  # Immediate rerun to show validation
 
 # --- Validation gate computed on rerun after click ---
 can_generate = False
