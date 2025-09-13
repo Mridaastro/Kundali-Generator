@@ -355,7 +355,7 @@ def render_kundali_chalit(
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
                 
                 # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(12.0, S*0.03)
+                inset = max(6.0, S*0.02)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
@@ -370,7 +370,7 @@ def render_kundali_chalit(
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
                 
                 # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(12.0, S*0.03)
+                inset = max(6.0, S*0.02)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
