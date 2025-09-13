@@ -11,6 +11,18 @@ from docx.oxml import parse_xml
 
 HN_ABBR = {'Su': 'सू', 'Mo': 'चं', 'Ma': 'मं', 'Me': 'बु', 'Ju': 'गु', 'Ve': 'शु', 'Sa': 'श', 'Ra': 'रा', 'Ke': 'के'}
 
+def _safe_get_label(code: str, planet_labels: dict | None) -> str:
+    base = HN_ABBR.get(code, code)
+    if planet_labels and code in planet_labels:
+        return planet_labels[code] or base
+    return base
+
+def _bool_flag(flags_dict, code: str, key: str) -> bool:
+    try:
+        return bool(flags_dict.get(code, {}).get(key, False))
+    except Exception:
+        return False
+
 def _n360(x: float) -> float:
     x = fmod(x, 360.0)
     return x if x >= 0 else x + 360.0
@@ -185,6 +197,11 @@ def _apply_cusp_positioning(baseline_xy, t: float, mid_t: float, cusp_anchors,
     if end_proximity > 180:
         end_proximity = 360 - end_proximity
     
+    # Snap to house center if near mid-bhava
+    mid_prox = abs(_fwd_arc(start_deg, (start_deg + _fwd_arc(start_deg, end_deg)*mid_t) % 360) - _fwd_arc(start_deg, planet_deg))
+    if mid_prox <= cusp_snap_deg:
+        return _interpolate(baseline_xy[0], baseline_xy[1], mid_t)
+
     # Determine if we should snap to cusp
     if start_proximity <= cusp_snap_deg:
         return start_anchor
@@ -229,16 +246,8 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
     sy = max(pad, min(sy, S - pad))
     return (sx, sy)
 
-def _planet_label(code: str, flags_by_planet=None) -> str:
-    base = HN_ABBR.get(code, code)
-    if flags_by_planet and code in flags_by_planet:
-        fl = flags_by_planet[code]
-        if fl.get("exalted"): base += "↑"
-        if fl.get("debilitated"): base += "↓"
-        if fl.get("combust"): base += "^"
-        if fl.get("self"): base += "Ⓢ"
-        if fl.get("vargottama"): base += "ᵛ"
-    return base
+def _planet_label(code: str) -> str:
+    return HN_ABBR.get(code, code)
 
 def render_kundali_chalit(
     size_pt: float,
@@ -246,11 +255,13 @@ def render_kundali_chalit(
     sidelons: Dict[str, float],     # Su,Mo,Ma,Me,Ju,Ve,Sa,Ra,Ke in degrees 0..360 (sidereal)
     begins_sid: List[float],         # 1-based BhavBegin sidereal (index 1..12)
     mids_sid: List[float],           # 1-based Bhava Madhya sidereal (index 1..12)
-    flags_by_planet: dict | None = None,           # 1-based Bhava Madhya sidereal (index 1..12)
     pair_threshold_deg: float = 6.0,
     color: str = "#FF6600",          # User-selected color for theming
     cusp_snap_deg: float = 0.5,      # Snap to corner/cusp if within this many degrees
     cusp_bias_deg: float = 2.0       # Bias toward corner/cusp if within this many degrees
+,
+    planet_labels: dict | None = None,
+    planet_flags: dict | None = None
 ):
     """Return a VML group (XML element) to append to a python-docx cell."""
     S = float(size_pt)
@@ -338,7 +349,7 @@ def render_kundali_chalit(
                 degs  = _deg_only(extra)
                 # Use enhanced cusp positioning for the arrow start position as well
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
-                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
+                start_xy = end_anchor_h_r  # exact end cusp
                 shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
                 disp_xy = start_xy  # Keep arrow start at border
                 effective_xy = chalit_xy  # Enhanced position in destination house
@@ -349,14 +360,14 @@ def render_kundali_chalit(
                 degs  = _deg_only(extra)
                 # Use enhanced cusp positioning for the arrow start position as well
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
-                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
+                start_xy = start_anchor_h_r  # exact start cusp
                 shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
                 disp_xy = start_xy  # Keep arrow start at border
                 effective_xy = chalit_xy  # Enhanced position in destination house
                 print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
 
         placements.append(dict(
-            code=code, label=_planet_label(code, flags_by_planet),
+            code=code, label=_planet_label(code),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
             disp_xy=disp_xy, eff_xy=effective_xy,
             shift=shift_arrow
@@ -382,13 +393,13 @@ def render_kundali_chalit(
 
     # Compose VML (frame + diagonals + baselines + planets + arrows)
     frame = f'''
-      <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{stroke_color}" strokeweight="4pt" fillcolor="{fill_color}"/>
-      <v:line style="position:absolute;z-index:2" from="0,0" to="{S},{S}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S},0" to="0,{S}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S/2},0" to="{S},{S/2}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S},{S/2}" to="{S/2},{S}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S/2},{S}" to="0,{S/2}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="0,{S/2}" to="{S/2},0" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
+      <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="none" strokeweight="4pt" fillcolor="{fill_color}"/>
+      <v:line style="position:absolute;z-index:2" from="0,0" to="{S},{S}" strokecolor="none" strokeweight="2.5pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S},0" to="0,{S}" strokecolor="none" strokeweight="2.5pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S/2},0" to="{S},{S/2}" strokecolor="none" strokeweight="2.5pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S},{S/2}" to="{S/2},{S}" strokecolor="none" strokeweight="2.5pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S/2},{S}" to="0,{S/2}" strokecolor="none" strokeweight="2.5pt"/>
+      <v:line style="position:absolute;z-index:2" from="0,{S/2}" to="{S/2},0" strokecolor="none" strokeweight="2.5pt"/>
     '''
 
     shapes = [frame]
@@ -411,9 +422,9 @@ def render_kundali_chalit(
           </w:txbxContent></v:textbox>
         </v:rect>''')
         (x1,y),(x2,_) = baselines[h]
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{x1},{y}" to="{x2},{y}" strokecolor="#000000" strokeweight="0.75pt"/>')
+        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{x1},{y}" to="{x2},{y}" strokecolor="none" strokeweight="0.75pt"/>')
         mx,my = _interpolate((x1,y),(x2,y),0.5)
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{mx},{y-3}" to="{mx},{y+3}" strokecolor="#000000" strokeweight="0.5pt"/>')
+        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{mx},{y-3}" to="{mx},{y+3}" strokecolor="none" strokeweight="0.5pt"/>')
 
     # Planet markers + shift arrows
     mark_w, mark_h = 16, 12
@@ -421,16 +432,27 @@ def render_kundali_chalit(
         x, y = p['disp_xy']
         left = x - mark_w/2; top = y - mark_h/2
         shapes.append(f'''
-        <v:roundrect arcsize="0.3" style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="black" fillcolor="#ffffff" strokeweight="0.75pt">
+        <v:rect arcsize="0.3" style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="none" fillcolor="#ffffff" strokeweight="0.75pt">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{p['label']}</w:t></w:r></w:p>
+            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{_safe_get_label(p['code'], planet_labels)}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
-        </v:roundrect>''')
+        </v:rect>''')
+        # Overlays for self/vargottama
+        if planet_flags:
+            is_self = _bool_flag(planet_flags, p['code'], 'self')
+            is_varg = _bool_flag(planet_flags, p['code'], 'vargottama')
+            if is_self:
+                cx_o = left + mark_w - 4; cy_o = top + mark_h - 4
+                shapes.append(f'''<v:oval style="position:absolute;left:{cx_o-2}pt;top:{cy_o-2}pt;width:4pt;height:4pt;z-index:8" fillcolor="#000000" strokecolor="none"/>''')
+            if is_varg:
+                badge_w, badge_h = 6, 6
+                bx = left + mark_w - badge_w + 0.5; by = top - badge_h/2
+                shapes.append(f'''<v:rect style="position:absolute;left:{bx}pt;top:{by}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8" fillcolor="#ffffff" strokecolor="#666666" strokeweight="0.5pt"/>''')
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="none" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
             <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 8}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
@@ -443,10 +465,10 @@ def render_kundali_chalit(
     for ar in pair_arrows:
         (sx,sy) = ar['start']; (ex,ey) = ar['end']
         shapes.append(f'''
-        <v:line style="position:absolute;z-index:9" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#7a2e2e" strokeweight="1pt">
+        <v:line style="position:absolute;z-index:90" from="{sx},{sy}" to="{ex},{ey}" strokecolor="none" strokeweight="1pt">
           <v:stroke endarrow="classic" startarrow="classic"/>
         </v:line>
-        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 10}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
+        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 10}pt;width:16pt;height:10pt;z-index:95" strokecolor="none">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{ar['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
