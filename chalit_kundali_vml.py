@@ -1,4 +1,3 @@
-
 # chalit_kundali_vml.py
 # Exact on-diagram placement for Chalit chart in DOCX (VML).
 # - Planet markers placed along within-house baseline by BhavBegin→BhavEnd fraction
@@ -173,9 +172,9 @@ def _get_cusp_corners_for_house(house_num: int, S: float):
         7:  (P_rb, P_lb),     # Quad house 7: right bottom inner to left bottom inner
         8:  (BM, RM),         # Triangular house 8: bottom middle to right middle
         9:  (RM, RM),         # Triangular house 9: right middle (single point cusp)
-        10: (P_rt, P_rb),     # Quad house 10: right top inner to right bottom inner
-        11: (RM, TM),         # Triangular house 11: right middle to top middle
-        12: (TM, TM),         # Triangular house 12: top middle (single point cusp)
+        10:(P_rt, P_rb),      # Quad house 10: right top inner to right bottom inner
+        11:(RM, TM),          # Triangular house 11: right middle to top middle
+        12:(TM, TM),          # Triangular house 12: top middle (single point cusp)
     }
     
     start_corner, end_corner = cusp_mapping.get(house_num, (P_lt, P_rt))
@@ -354,12 +353,12 @@ def render_kundali_chalit(
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
                 
-                # Inset the planet inside its rāśi house so it does not sit on/over the border
+                # Inset the planet inside its rāśि house so it does not sit on/over the border
                 inset = max(12.0, S*0.03)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
-                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
-                effective_xy = chalit_xy  # Enhanced position in destination house
+                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")
+                effective_xy = chalit_xy
                 print(f"DEBUG: Forward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
             elif h_c == (h_r - 2) % 12 + 1:  # backward shift  
                 boundary = begins_sid[h_r]
@@ -369,12 +368,12 @@ def render_kundali_chalit(
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
                 
-                # Inset the planet inside its rāśi house so it does not sit on/over the border
+                # Inset the planet inside its rāśि house so it does not sit on/over the border
                 inset = max(12.0, S*0.03)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
-                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
-                effective_xy = chalit_xy  # Enhanced position in destination house
+                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")
+                effective_xy = chalit_xy
                 print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
 
         placements.append(dict(
@@ -436,7 +435,8 @@ def render_kundali_chalit(
         # mid tick removed as per requirement
 
     # Planet markers + shift arrows
-    mark_w, mark_h = 16, 12
+    # Increased textbox size to prevent glyph clipping
+    mark_w, mark_h = 18, 14
     for p in placements:
         x, y = p['disp_xy']
         left = x - mark_w/2; top = y - mark_h/2
@@ -450,30 +450,40 @@ def render_kundali_chalit(
         if planet_flags:
             is_self = _flag(planet_flags, p['code'], 'self')
             is_varg = _flag(planet_flags, p['code'], 'vargottama')
-            if is_self:
-                # draw a thin circle around the planet label instead of a dot
-                pad = 2.0
-                d = max(mark_w, mark_h) + 2*pad
-                cx = left + mark_w/2; cy = top + mark_h/2
-                shapes.append(f'''<v:oval style="position:absolute;left:{cx - d/2}pt;top:{cy - d/2}pt;width:{d}pt;height:{d}pt;z-index:8" fillcolor="none" strokecolor="#333333" strokeweight="1pt"/>''')
 
+            # Self-ruling: draw a thin ring INSIDE the textbox (no fill)
+            if is_self:
+                pad = 2.0                                   # clearance to textbox edge
+                d = max(8.0, min(mark_w, mark_h) - 2*pad)   # ring diameter
+                cx = left + mark_w/2; cy = top + mark_h/2   # center of label
+                shapes.append(
+                    f'''<v:oval style="position:absolute;left:{cx - d/2}pt;top:{cy - d/2}pt;width:{d}pt;height:{d}pt;z-index:8"
+                         fillcolor="none" strokecolor="#333333" strokeweight="0.75pt"/>'''
+                )
+
+            # Vargottama badge unchanged
             if is_varg:
                 badge_w, badge_h = 6, 6
                 bx = left + mark_w - badge_w + 0.5; by = top - badge_h/2
                 shapes.append(f'''<v:rect style="position:absolute;left:{bx}pt;top:{by}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8" fillcolor="#ffffff" strokecolor="#666666" strokeweight="0.5pt"/>''')
+
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
-            # shorten arrow to ~1/3rd of original length
-            ex = sx + (ex - sx) * shift_arrow_scale
-
-            ey = sy + (ey - sy) * shift_arrow_scale
-
+            # move arrow start away from planet so label is not obscured
+            dx, dy = (ex - sx), (ey - sy)
+            d = (dx*dx + dy*dy) ** 0.5 or 1.0
+            ux, uy = dx/d, dy/d
+            gap = max(6.0, mark_h * 0.65)
+            sx2, sy2 = sx + ux*gap, sy + uy*gap
+            # shorten arrow from the offset start (~1/3 of remaining length)
+            ex2 = sx2 + (ex - sx2) * shift_arrow_scale
+            ey2 = sy2 + (ey - sy2) * shift_arrow_scale
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{(sx2+ex2)/2 - 8}pt;top:{(sy2+ey2)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
