@@ -119,18 +119,9 @@ def make_document(template_file=None):
         # Check in assets folder first, then current directory
         template_path = f"assets/{template_file}" if os.path.exists(f"assets/{template_file}") else template_file
         if os.path.exists(template_path):
-            print(f"DEBUG: Attempting to load template: {template_path}")
-            doc = _WordDocument(template_path)
-            print(f"DEBUG: Successfully loaded template: {template_path}")
-            return doc
-        else:
-            print(f"DEBUG: Template file not found: {template_path}")
-    except Exception as e:
-        print(f"DEBUG: Error loading template {template_file}: {str(e)}")
-        import traceback
-        print(f"DEBUG: Template loading traceback: {traceback.format_exc()}")
-    
-    print(f"DEBUG: Falling back to blank document (template load failed)")
+            return _WordDocument(template_path)
+    except Exception:
+        pass
     return _WordDocument()
 
 def hex_to_rgb_hex(hex_color):
@@ -167,8 +158,8 @@ def get_color_variants(base_color):
     return {
         'base': hex_to_rgb_hex(base_color),
         'light': hex_to_rgb_hex(lighten_color(base_color, 0.7)),  # Very light for odd rows, kundali background
-        'dark': hex_to_rgb_hex(darken_color(base_color, 0.2)),    # Same as kundali borders
-        'medium': hex_to_rgb_hex(darken_color(base_color, 0.4))   # Much darker for section bars
+        'dark': hex_to_rgb_hex(darken_color(base_color, 0.3)),    # Dark for borders/headers
+        'medium': hex_to_rgb_hex(lighten_color(base_color, 0.4))  # Medium for section bars
     }
 
 # apply_color_scheme function removed - VML color theming now handled at runtime during generation
@@ -363,7 +354,7 @@ def add_phalit_section(container_cell, width_inches=3.60, rows=25):
         el.set(qn('w:sz'), '8')
         el.set(qn('w:space'), '0')
         # Use user_color dark variant instead of hardcoded orange
-        dark_color = hex_to_rgb_hex(darken_color(user_color, 0.2))
+        dark_color = hex_to_rgb_hex(darken_color(user_color, 0.3))
         el.set(qn('w:color'), dark_color)
         tcBorders.append(el)
         tcPr.append(tcBorders)
@@ -1076,7 +1067,7 @@ def _make_flags(view, st):
             'exalted': st['exalt_nav'],
             'debilitated': st['debil_nav'],
             'vargottama': st['vargottama'],
-            'combust': False,  # Keep as False for now - D9 combustion handled elsewhere
+            'combust': False,
         }
     # default: rasi
     return {
@@ -1088,14 +1079,11 @@ def _make_flags(view, st):
     }
 
 
-def fmt_planet_label(code, flags, chart_type='rasi'):
+def fmt_planet_label(code, flags):
     base = HN_ABBR.get(code, code)
     if flags.get('exalted'): base += '↑'
     if flags.get('debilitated'): base += '↓'
     if flags.get('combust'): base += '^'
-    # Only show Vargottam symbol in Navamsa chart to avoid duplication
-    if flags.get('vargottama') and chart_type == 'navamsa': base += '◱'
-    # Note: self-ruling is handled separately in rendering as circles, not text markers
     return base
 
 
@@ -1127,27 +1115,19 @@ def build_rasi_house_planets_marked(sidelons, lagna_sign):
 
 
 def build_navamsa_house_planets_marked(sidelons, nav_lagna_sign):
-    """
-    Build Navamsa house planets using unified status calculation logic.
-    """
-    from kundali_markers_lib import _calculate_planet_status
     house_map = {i: [] for i in range(1, 13)}
+    stats = compute_statuses_all(sidelons)
+    sun_nav = stats['Su']['nav']  # Sun's Navāṁśa sign
     for code in ['Su', 'Mo', 'Ma', 'Me', 'Ju', 'Ve', 'Sa', 'Ra', 'Ke']:
-        lon = sidelons[code]
-        nav_sign = navamsa_sign_from_lon_sid(lon)
+        nav_sign = navamsa_sign_from_lon_sid(sidelons[code])
         h = ((nav_sign - nav_lagna_sign) % 12) + 1
-        # Use unified status calculation for D9 chart
-        status = _calculate_planet_status(code, lon, sidelons, chart_type='D9')
-        # Use canonical flags format expected by renderer
-        fl = status  # Keep original canonical keys: 'self', 'exalt', 'debil', 'comb', 'varg'
-        # Create display flags for label formatting
-        display_fl = {
-            'exalted': status['exalt'],
-            'debilitated': status['debil'],
-            'combust': status['comb'],
-            'vargottama': status['varg']
-        }
-        label = fmt_planet_label(code, display_fl, chart_type='navamsa')
+        fl = _make_flags('nav', stats[code])  # nav-based self/exalt/debil
+        # Navāṁśa combust rule: planet combust iff shares Nav sign with Sun
+        if code not in ('Su', 'Ra', 'Ke'):
+            fl['combust'] = (nav_sign == sun_nav)
+        else:
+            fl['combust'] = False
+        label = fmt_planet_label(code, fl)
         house_map[h].append({'txt': label, 'flags': fl})
     return house_map
 
@@ -1303,11 +1283,12 @@ def geocode(place, api_key):
         try:
             base = "https://api.geoapify.com/v1/geocode/search?"
             
-            # Prepare query parameters - enhanced for village search
+            # Prepare query parameters - increased limit for villages and rural areas
             query_params = {
                 "text": search_term,
-                "format": "json", 
-                "limit": 15,  # Increased limit to find villages and rural areas
+                "format": "json",
+                "limit": 10,  # Increased limit to find villages
+                "type": "locality",  # Include villages, towns, cities
                 "apiKey": api_key
             }
             
@@ -1366,13 +1347,12 @@ def geocode(place, api_key):
     # Try to find the best match among all results - prioritize villages too
     best_result = None
     for res in all_results:
-        # Enhanced location extraction for villages and rural areas
+        # Include more location types to capture villages and rural areas
         city_res = (res.get("city") or res.get("town") or res.get("village") or 
                    res.get("municipality") or res.get("hamlet") or res.get("locality") or 
-                   res.get("neighbourhood") or res.get("suburb") or res.get("quarter") or "")
-        state_res = res.get("state") or res.get("state_district") or ""
+                   res.get("neighbourhood") or res.get("county") or "")
+        state_res = res.get("state") or ""
         country_res = res.get("country") or ""
-        county_res = res.get("county") or res.get("district") or ""
         
         # Check city match
         city_match = _norm(city_res) == _norm(typed_city)
@@ -1543,7 +1523,7 @@ def sidereal_positions(dt_utc):
                     ('Ve', swe.VENUS), ('Sa', swe.SATURN)]:
         xx, _ = swe.calc_ut(jd, p, flags)
         out[code] = xx[0] % 360.0
-    xx, _ = swe.calc_ut(jd, swe.MEAN_NODE, flags)  # Mean node locked
+    xx, _ = swe.calc_ut(jd, swe.TRUE_NODE, flags)  # True node (default)
     out['Ra'] = xx[0] % 360.0
     out['Ke'] = (out['Ra'] + 180.0) % 360.0
     ay = swe.get_ayanamsa_ut(jd)
@@ -1560,7 +1540,8 @@ def ascendant_sign(jd, lat, lon, ay):
 def navamsa_sign_from_lon_sid(lon_sid):
     sign = int(lon_sid // 30) + 1
     deg_in_sign = lon_sid % 30.0
-    pada = int(deg_in_sign // (30.0 / 9.0))
+    # use half-open slices with tiny epsilon to avoid boundary flips
+    pada = int(((deg_in_sign + 1e-9) // (30.0 / 9.0)))
     if sign in (1, 4, 7, 10): start = sign
     elif sign in (2, 5, 8, 11): start = ((sign + 8 - 1) % 12) + 1
     else: start = ((sign + 4 - 1) % 12) + 1
@@ -1710,30 +1691,19 @@ def chalit_house_index_of_lon(lon_sid: float, begins_sid):
 def build_chalit_house_planets_marked(sidelons, begins_sid):
     """
     Build house->planet labels using Chalit houses from 'begins_sid'.
-    Uses unified status calculation logic from kundali_markers_lib.
+    Flags (exalt/own/combust/vargottama) are preserved by reusing compute_statuses_all.
     Now includes longitude data for precise positioning.
     """
-    from kundali_markers_lib import _calculate_planet_status
     house_map = {i: [] for i in range(1, 13)}
+    stats = compute_statuses_all(sidelons)
     for code in ['Su', 'Mo', 'Ma', 'Me', 'Ju', 'Ve', 'Sa', 'Ra', 'Ke']:
-        lon = sidelons[code]
-        h = chalit_house_index_of_lon(lon, begins_sid)
-        # Use unified status calculation for D1 chart
-        status = _calculate_planet_status(code, lon, sidelons, chart_type='D1')
-        # Use canonical flags format expected by renderer
-        fl = status  # Keep original canonical keys: 'self', 'exalt', 'debil', 'comb', 'varg'
-        # Create display flags for label formatting
-        display_fl = {
-            'exalted': status['exalt'],
-            'debilitated': status['debil'],
-            'combust': status['comb'],
-            'vargottama': status['varg']
-        }
-        label = fmt_planet_label(code, display_fl, chart_type='rasi')
+        h = chalit_house_index_of_lon(sidelons[code], begins_sid)
+        fl = _make_flags('rasi', stats[code])
+        label = fmt_planet_label(code, fl)
         house_map[h].append({
             'txt': label, 
             'flags': fl,
-            'lon': lon  # Include longitude for precise positioning
+            'lon': sidelons[code]  # Include longitude for precise positioning
         })
     return house_map
 
@@ -2064,13 +2034,13 @@ def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_
     <w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr><w:r>
       <w:pict xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w10="urn:schemas-microsoft-com:office:word"><w10:wrap type="topAndBottom"/>
         <v:group style="position:relative;margin-left:auto;margin-right:auto;margin-top:0;width:{S}pt;height:{int(S*0.80)}pt" coordorigin="0,0" coordsize="{S},{S}">
-          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{darken_color(color, 0.2)}" strokeweight="4pt" fillcolor="{lighten_color(color, 0.8)}"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
+          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{light_color}" strokeweight="3pt" fillcolor="{lighten_color(color, 0.8)}"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="{light_color}" strokeweight="1.25pt"/>
           {boxes_xml}
         </v:group>
       </w:pict>
@@ -2153,13 +2123,13 @@ def kundali_single_box(size_pt=220, lagna_sign=1, house_planets=None, color="#FF
     <w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr><w:r>
       <w:pict xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w10="urn:schemas-microsoft-com:office:word"><w10:wrap type="topAndBottom"/>
         <v:group style="position:relative;margin-left:auto;margin-right:auto;margin-top:0;width:{S}pt;height:{int(S*0.80)}pt" coordorigin="0,0" coordsize="{S},{S}">
-          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{darken_color(color, 0.2)}" strokeweight="4pt" fillcolor="{lighten_color(color, 0.8)}"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="{darken_color(color, 0.2)}" strokeweight="2.5pt"/>
+          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{light_color}" strokeweight="3pt" fillcolor="{lighten_color(color, 0.8)}"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="{light_color}" strokeweight="1.25pt"/>
           {boxes_xml}
         </v:group>
       </w:pict>
@@ -2244,18 +2214,14 @@ def kundali_w_p_with_centroid_labels(size_pt=220, lagna_sign=1):
     return parse_xml(xml)
 
 
-def add_table_borders(table, size=6, inner_size=None, color="#D2691E"):
+def add_table_borders(table, size=6, color="#D2691E"):
     tbl = table._tbl
     tblPr = tbl.tblPr
     tblBorders = OxmlElement('w:tblBorders')
-    # Use different thickness for outer vs inner borders if specified
-    inner_sz = inner_size if inner_size is not None else size
     for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
         el = OxmlElement(f'w:{edge}')
         el.set(qn('w:val'), 'single')
-        # Use inner_size for inside borders, regular size for outer borders
-        border_size = inner_sz if edge in ('insideH', 'insideV') else size
-        el.set(qn('w:sz'), str(border_size))
+        el.set(qn('w:sz'), str(size))
         el.set(qn('w:color'), color.lstrip('#'))  # Remove # for Word XML
         tblBorders.append(el)
     tblPr.append(tblBorders)
@@ -2323,17 +2289,17 @@ def create_cylindrical_section_header(container,
         run.font.name = 'Calibri'
         run.font.size = Pt(12)
         run.font.bold = True
-        run.font.color.rgb = RGBColor(0, 0, 0)  # Black text
+        run.font.color.rgb = RGBColor(255, 255, 255)  # White text
 
     # Compute colors for VML template
     if yellow_gradient:
         # Create gradient like your screenshot: light cream -> user selected color
         light_cream = "#FFF8DC"  # Light cream/yellow color for start
         end_color = gradient_color  # User selected color for end
-        border_color = darken_color(gradient_color, 0.2)  # Use darkened color for border to match tables
+        border_color = gradient_color  # Use user color for border
         fill_colors = f"color=\"{light_cream}\" color2=\"{end_color}\""
     else:
-        border_color = darken_color(primary_color, 0.2)  # Darker border to match tables
+        border_color = primary_color
         fill_colors = f"color=\"{primary_color}\" color2=\"{gradient_color}\""
     
     # Add beautiful gradient background styling using VML shape with 3-stop gradient
@@ -2354,7 +2320,7 @@ def create_cylindrical_section_header(container,
                   <w:pPr><w:jc w:val="{text_jc}"/></w:pPr>
                   <w:r>
                     <w:rPr>
-                      <w:color w:val="000000"/>
+                      <w:color w:val="FFFFFF"/>
                       <w:sz w:val="24"/>
                       <w:b/>
                       <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>
@@ -2617,7 +2583,7 @@ def create_unified_personal_details_box(container, name, dob, tob, place):
             border.set(qn('w:val'), 'single')
             border.set(qn('w:sz'), '6')  # Thin border
             # Use user_color dark variant instead of hardcoded orange
-            dark_color = hex_to_rgb_hex(darken_color(user_color, 0.2))
+            dark_color = hex_to_rgb_hex(darken_color(user_color, 0.3))
             border.set(qn('w:color'), dark_color)
             tcBorders.append(border)
         tcPr.append(tcBorders)
@@ -2760,7 +2726,7 @@ def apply_premium_table_style(table,
             border = OxmlElement(f'w:{edge}')
             border.set(qn('w:val'), style)
             border.set(qn('w:sz'), size)
-            border.set(qn('w:color'), darken_color(base_color, 0.2).lstrip('#'))  # Use selected color darkened
+            border.set(qn('w:color'), darken_color(base_color, 0.3).lstrip('#'))  # Use selected color darkened
             tblBorders.append(border)
         tblPr.append(tblBorders)
 
@@ -3113,9 +3079,9 @@ def add_pramukh_bindu_section(container_cell, sidelons, lagna_sign, dob_dt):
         r[0].text = left_txt
         r[1].text = right_txt
 
-    # Borders similar to other tables - use user_color dark variant from scope with thick outer borders, thin inner borders  
-    add_table_borders(t, size=12, inner_size=3, color=darken_color(user_color, 0.2))
-    # Don't apply premium table style to avoid making first row a header - these are all data values
+    # Borders similar to other tables - use user_color from scope
+    add_table_borders(t, size=6, color=user_color)
+    apply_premium_table_style(t, user_color)  # Apply themed headers and alternating rows
     compact_table_paragraphs(t)
 
 
@@ -3501,23 +3467,13 @@ if place_input_val:
                     search_terms = [place_input_val]  # Original input as fallback
                     city_norm = _norm_suggestion(place_input_val)
                     
-                    # Add spelling variations for common village name patterns
+                    # Add spelling variation for Sehora -> Sihora
                     if city_norm == "sehora":
                         print(f"DEBUG: Detected spelling variation in suggestions: 'Sehora' -> trying 'Sihora'")
                         search_terms = [
                             "Sihora",  # Try correct spelling first
                             "Sihora, Madhya Pradesh, India",  # More specific
                             place_input_val  # Original as fallback
-                        ]
-                    elif city_norm == "pehlapur":
-                        print(f"DEBUG: Trying spelling variations for Pehlapur")
-                        search_terms = [
-                            "Pehlapur",  # Original
-                            "Pehlpur",   # Alternative spelling
-                            "Pehlipur",  # Alternative spelling
-                            "Pahelpur",  # Alternative spelling
-                            place_input_val + ", Assam",  # With state
-                            place_input_val + ", India"   # With country
                         ]
                     
                     all_results = []
@@ -3526,11 +3482,11 @@ if place_input_val:
                     # Try each search term
                     for search_term in search_terms:
                         try:
-                            # Prepare query parameters - enhanced for village search
+                            # Prepare query parameters
                             query_params = {
                                 "text": search_term,
                                 "format": "json",
-                                "limit": 15,  # Increased limit to find villages and rural areas
+                                "limit": 5,
                                 "apiKey": api_key
                             }
                             
@@ -3550,10 +3506,7 @@ if place_input_val:
                                 all_results.extend(j["results"])
                                 # For spelling corrections, prioritize the first search term results
                                 if search_term != place_input_val and j.get("results"):
-                                    print(f"DEBUG: Found results with spelling variation '{search_term}', using these")
                                     break  # Use the corrected spelling results
-                            else:
-                                print(f"DEBUG: No results for search term '{search_term}'")
                         except Exception as e:
                             print(f"DEBUG: Geoapify error for '{search_term}': {e}")
                             continue
@@ -3568,23 +3521,16 @@ if place_input_val:
                         other_candidates = []
                         
                         for res in j["results"]:
-                            # Enhanced location extraction for villages and rural areas
-                            city = (res.get("city") or res.get("town") or res.get("village") or 
-                                   res.get("municipality") or res.get("hamlet") or res.get("locality") or 
-                                   res.get("neighbourhood") or res.get("suburb") or "")
-                            state = res.get("state") or res.get("state_district") or ""
+                            city = res.get("city") or res.get("town") or res.get("village") or res.get("municipality") or ""
+                            state = res.get("state") or ""
                             country = res.get("country") or ""
-                            county = res.get("county") or res.get("district") or ""
+                            county = res.get("county") or ""
                             result_type = res.get("result_type", "")
                             
-                            # Build display string - enhanced for villages
-                            if city and country:  # At minimum need city/village and country
-                                # For villages, try to include district/county if state is missing
+                            # Build display string
+                            if city and country:  # At minimum need city and country
                                 if state:
                                     display_str = f"{city}, {state}, {country}"
-                                elif county and county.lower() != city.lower():
-                                    # Use county as state substitute for villages
-                                    display_str = f"{city}, {county}, {country}"  
                                 else:
                                     display_str = f"{city}, {country}"
                                 lat = float(res["lat"])
@@ -3594,7 +3540,7 @@ if place_input_val:
                                 district = res.get("district") or res.get("county") or ""
                                 if ("sihora" in city.lower() and 
                                     ("jabalpur" in district.lower() or "jabalpur" in county.lower()) and
-                                    result_type in ["city", "town", "municipality", "village"]):
+                                    result_type in ["city", "town", "municipality"]):
                                     print(f"DEBUG: Found priority Sihora in Jabalpur: {display_str} ({lat}, {lon}) - district: {district}")
                                     jabalpur_candidates.append((display_str, lat, lon))
                                 else:
@@ -3608,7 +3554,7 @@ if place_input_val:
                             print(f"DEBUG: No Jabalpur district Sihora found, using fallback coordinates")
                             candidates.append(("Sihora, Jabalpur, Madhya Pradesh, India", 23.4866, 80.1066))
                         elif not jabalpur_candidates:  # For other searches, use other candidates
-                            candidates.extend(other_candidates[:8])  # Increased limit for villages
+                            candidates.extend(other_candidates[:3])  # Limit others
                 else:
                     # No API key - show fallback suggestions for common cities
                     print(f"DEBUG: No API key, showing fallback suggestions for: {place_input_val}")
@@ -3626,7 +3572,7 @@ if place_input_val:
                 
                 # Remove duplicates
                 candidates = list(dict.fromkeys(candidates))
-                print(f"DEBUG: Found {len(candidates)} candidates for '{place_input_val}'")
+                print(f"DEBUG: Found {len(candidates)} candidates")
                 
                 if len(candidates) >= 1:
                     # Show dropdown for any suggestions (even single matches for clarity)
@@ -3634,12 +3580,9 @@ if place_input_val:
                     st.session_state['place_suggestions'] = candidates
                     st.rerun()  # Force rerun to render dropdown immediately
                 else:
-                    # No matches found - provide helpful error message
+                    # No matches found  
                     print(f"DEBUG: No matches found for: {place_input_val}")
-                    if any(char.isalpha() for char in place_input_val):
-                        st.session_state['tz_error_msg'] = f"No results found for '{place_input_val}'. Try different spelling or add state/country (e.g., '{place_input_val}, State, Country')."
-                    else:
-                        st.session_state['tz_error_msg'] = "Place not found. Please enter in City, State, Country format."
+                    st.session_state['tz_error_msg'] = "Place not found. Please enter in City, State, Country format."
                     st.session_state['tz_input'] = ''
         except Exception:
             # On any error, clear coords and show format guidance
@@ -3710,16 +3653,11 @@ st.write("")
 
 api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
 
-# === Center aligned Generate Button ===
-col1, col2, col3 = st.columns([2, 1, 2])  # Create three columns with center one smaller
-with col2:
-    generate_clicked = st.button("Generate Kundali", key="gen_btn", use_container_width=True)
+# === Advanced Settings (half width) with Generate button right-aligned ===
+settings_row_col1, settings_row_col2 = st.columns([1, 1])
 
-# === Center aligned Advanced Settings (half width) ===
-col1, col2, col3 = st.columns([1, 2, 1])  # Center column is twice as wide
-
-with col2:  # Use center column for half-width
-    with st.expander("🎨 **Advanced Settings**", expanded=False):  # Make title bold
+with settings_row_col1:
+    with st.expander("🎨 Advanced Settings", expanded=False):
         # Background template selection
         st.markdown("**Document Background Template**")
         background_options = {
@@ -3756,12 +3694,18 @@ with col2:  # Use center column for half-width
             label_visibility="collapsed"
         )
 
-if generate_clicked:
-    print("DEBUG: Generate Kundali button clicked!")
-    st.session_state['generate_clicked'] = True
-    st.session_state['submitted'] = True
-    print("DEBUG: About to rerun after button click")
-    st.rerun()  # Immediate rerun to show validation
+with settings_row_col2:
+    # Generate button right-aligned to Advanced Settings block
+    st.markdown("<div style='text-align: right; margin-top: 8px;'>", unsafe_allow_html=True)
+    generate_clicked = st.button("Generate Kundali", key="gen_btn")
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    if generate_clicked:
+        print("DEBUG: Generate Kundali button clicked!")
+        st.session_state['generate_clicked'] = True
+        st.session_state['submitted'] = True
+        print("DEBUG: About to rerun after button click")
+        st.rerun()  # Immediate rerun to show validation
 
 # --- Validation gate computed on rerun after click ---
 can_generate = False
@@ -4016,32 +3960,8 @@ if can_generate:
         template_file = background_options[selected_background]
         user_color = color_options[selected_color]
         
-        # Diagnostic: Check template file status
-        print(f"DEBUG: Selected background: {selected_background}")
-        print(f"DEBUG: Template file: {template_file}")
-        print(f"DEBUG: Assets folder exists: {os.path.exists('assets')}")
-        print(f"DEBUG: Template file exists: {os.path.exists(f'assets/{template_file}')}")
-        if os.path.exists(f'assets/{template_file}'):
-            file_size = os.path.getsize(f'assets/{template_file}')
-            print(f"DEBUG: Template file size: {file_size} bytes")
-        
         # Generate Word document using selected template  
         doc = make_document(template_file)
-        
-        # Diagnostic: Check if document was created with template
-        print(f"DEBUG: Document created, checking content...")
-        try:
-            print(f"DEBUG: Document sections: {len(doc.sections)}")
-            print(f"DEBUG: Document paragraphs: {len(doc.paragraphs)}")
-            # Check for images in document relationships
-            image_count = 0
-            for rel in doc.part.rels.values():
-                if 'image' in rel.reltype:
-                    image_count += 1
-                    print(f"DEBUG: Found image in document: {rel.target_ref}")
-            print(f"DEBUG: Total images found in document: {image_count}")
-        except Exception as e:
-            print(f"DEBUG: Error checking document content: {e}")
         
         # Note: VML color theming is now handled directly at runtime during generation
         # No need for post-processing color replacement
@@ -4262,7 +4182,7 @@ if can_generate:
                     tcPr.remove(existing_borders)
 
                 # Add themed borders using user color
-                dark_color = hex_to_rgb_hex(darken_color(user_color, 0.2))
+                dark_color = hex_to_rgb_hex(darken_color(user_color, 0.3))
                 tcBorders = OxmlElement('w:tcBorders')
                 for edge in ('top', 'left', 'bottom', 'right'):
                     el = OxmlElement(f'w:{edge}')
