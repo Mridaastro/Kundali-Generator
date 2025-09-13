@@ -11,6 +11,19 @@ from docx.oxml import parse_xml
 
 HN_ABBR = {'Su': 'सू', 'Mo': 'चं', 'Ma': 'मं', 'Me': 'बु', 'Ju': 'गु', 'Ve': 'शु', 'Sa': 'श', 'Ra': 'रा', 'Ke': 'के'}
 
+
+def _safe_get_label(code, planet_labels):
+    base = HN_ABBR.get(code, code)
+    if isinstance(planet_labels, dict) and code in planet_labels and planet_labels[code]:
+        return str(planet_labels[code])
+    return base
+
+def _flag(flags, code, key):
+    try:
+        return bool(flags.get(code, {}).get(key, False))
+    except Exception:
+        return False
+
 def _n360(x: float) -> float:
     x = fmod(x, 360.0)
     return x if x >= 0 else x + 360.0
@@ -242,7 +255,7 @@ def render_kundali_chalit(
     color: str = "#FF6600",          # User-selected color for theming
     cusp_snap_deg: float = 0.5,      # Snap to corner/cusp if within this many degrees
     cusp_bias_deg: float = 2.0       # Bias toward corner/cusp if within this many degrees
-):
+, planet_labels=None, planet_flags=None):
     """Return a VML group (XML element) to append to a python-docx cell."""
     S = float(size_pt)
     houses = _house_polys(S)
@@ -414,9 +427,20 @@ def render_kundali_chalit(
         shapes.append(f'''
         <v:rect arcsize="0.3" style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="none" fillcolor="#ffffff" strokeweight="0.75pt">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{p['label']}</w:t></w:r></w:p>
+            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{_safe_get_label(p['code'], planet_labels)}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
         </v:roundrect>''')
+        # overlays
+        if planet_flags:
+            is_self = _flag(planet_flags, p['code'], 'self')
+            is_varg = _flag(planet_flags, p['code'], 'vargottama')
+            if is_self:
+                cx_o = left + mark_w - 4; cy_o = top + mark_h - 4
+                shapes.append(f'''<v:oval style="position:absolute;left:{cx_o-2}pt;top:{cy_o-2}pt;width:4pt;height:4pt;z-index:8" fillcolor="#000000" strokecolor="none"/>''')
+            if is_varg:
+                badge_w, badge_h = 6, 6
+                bx = left + mark_w - badge_w + 0.5; by = top - badge_h/2
+                shapes.append(f'''<v:rect style="position:absolute;left:{bx}pt;top:{by}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8" fillcolor="#ffffff" strokecolor="#666666" strokeweight="0.5pt"/>''')
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
