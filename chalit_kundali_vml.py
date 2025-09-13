@@ -245,9 +245,6 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
 def _planet_label(code: str) -> str:
     return HN_ABBR.get(code, code)
 
-SHIFT_ARROW_SCALE
-
-
 def render_kundali_chalit(
     size_pt: float,
     lagna_sign: int,
