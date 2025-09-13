@@ -88,6 +88,24 @@ def _poly_centroid(poly):
         xs,ys = zip(*poly); return (sum(xs)/n, sum(ys)/n)
     return (Cx/(6*A), Cy/(6*A))
 
+
+def _point_in_poly(pt, poly):
+    """Ray casting point in polygon (inclusive)."""
+    x, y = pt
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        # Check if point is between y1 and y2
+        if ((y1 > y) != (y2 > y)):
+            xinters = (x2 - x1) * (y - y1) / (y2 - y1 + 1e-12) + x1
+            if x <= xinters:
+                inside = not inside
+        # On edge tolerance
+        # horizontal/vertical tolerance can be added if needed
+    return inside
+
 def _inset_toward_centroid(point, house_poly, inset_pt: float):
     """Move 'point' by 'inset_pt' toward polygon centroid (staying inside)."""
     cx, cy = _poly_centroid(house_poly)
@@ -341,8 +359,56 @@ def render_kundali_chalit(
     # Planet markers + shift arrows
     # Increased textbox size to prevent glyph clipping
     mark_w, mark_h = 18, 14
+    # --- Lane layout to avoid planet overlap per house ---
+    # Build per-house index lists
+    per_house = {h: [] for h in range(1,13)}
+    for i, p in enumerate(placements):
+        per_house[p['h_c']].append(i)
+    # Normal vectors and sorting along baseline
+    for h, idxs in per_house.items():
+        if not idxs:
+            continue
+        # Sort by param t (along the baseline)
+        idxs.sort(key=lambda i: placements[i]['t'])
+        # Baseline unit normal for this house
+        p1, p2 = baselines[h]
+        dx, dy = (p2[0] - p1[0]), (p2[1] - p1[1])
+        L = (dx*dx + dy*dy) ** 0.5 or 1.0
+        # Perpendicular (normal) unit vector
+        nx, ny = -dy / L, dx / L
+        # Space between lanes
+        lane_step = max(mark_h * 1.15, 12.0)
+        # Assign lanes in the pattern 0, +1, -1, +2, -2, ...
+        def lane_for(k):
+            # k is 0-based order in the sorted list
+            if k == 0:
+                return 0
+            n = (k + 1) // 2
+            return n if k % 2 == 1 else -n
+        for k, i_p in enumerate(idxs):
+            p = placements[i_p]
+            x0, y0 = p['disp_xy']
+            lane = lane_for(k)
+            x = x0 + nx * lane * lane_step
+            y = y0 + ny * lane * lane_step
+            # Keep inside the house polygon; try mirrored lane, else inset retries
+            if not _point_in_poly((x, y), houses[h]):
+                lane_alt = -lane
+                x_alt = x0 + nx * lane_alt * lane_step
+                y_alt = y0 + ny * lane_alt * lane_step
+                if _point_in_poly((x_alt, y_alt), houses[h]):
+                    x, y = x_alt, y_alt
+                else:
+                    fx, fy = x, y
+                    for _ in range(6):
+                        fx, fy = _inset_toward_centroid((fx, fy), houses[h], 6.0)
+                        if _point_in_poly((fx, fy), houses[h]):
+                            break
+                    x, y = fx, fy
+            p['disp_xy_adj'] = (x, y)
+
     for p in placements:
-        x, y = p['disp_xy']
+        x, y = p.get('disp_xy_adj', p['disp_xy'])
         left = x - mark_w/2; top = y - mark_h/2
         shapes.append(f'''
         <v:rect style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="none" fillcolor="#ffffff" strokeweight="0.75pt">
@@ -374,7 +440,7 @@ def render_kundali_chalit(
         # Shift arrow (start offset away from label; shorten to ~1/3)
         if p['shift']:
             a = p['shift']
-            sx, sy = a['start']; ex, ey = a['end']
+            sx, sy = p.get('disp_xy_adj', p['disp_xy']); ex, ey = a['end']
             dx, dy = (ex - sx), (ey - sy)
             d = (dx*dx + dy*dy) ** 0.5 or 1.0
             ux, uy = dx/d, dy/d
