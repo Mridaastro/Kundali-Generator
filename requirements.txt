@@ -10,4 +10,4 @@ google-auth
 google-auth-oauthlib
 matplotlib
 docx
-pyswisseph
+pyswisseph==2.10.3.2
