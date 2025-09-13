@@ -76,6 +76,22 @@ def _house_polys(S: float):
     }
     return houses
 
+
+
+def _project_t_on_baseline(xy, baseline):
+    (x1,y1),(x2,y2) = baseline
+    vx, vy = (x2-x1), (y2-y1)
+    denom = (vx*vx + vy*vy) or 1.0
+    t = ((xy[0]-x1)*vx + (xy[1]-y1)*vy) / denom
+    if t < 0: t = 0.0
+    if t > 1: t = 1.0
+    return t
+
+def _lane_index(k):
+    # 0, +1, -1, +2, -2, ...
+    if k == 0: return 0
+    n = (k + 1) // 2
+    return n if k % 2 == 1 else -n
 def _poly_centroid(poly):
     A = Cx = Cy = 0.0
     n = len(poly)
@@ -383,6 +399,30 @@ def render_kundali_chalit(
         ))
 
     # Close-pair arrows (≤ 6°) within each chalit house
+    
+    # De-overlap planets within the same drawn house using perpendicular lanes
+    lane_step = max(mark_h * 1.15, 12.0)   # px spacing between lanes
+    for h in range(1,13):
+        # Choose DRAW house: for shifted planets, glyph sits in rashi house; else in chalit house
+        idxs = [i for i,p in enumerate(placements) if (p['h_r'] if p['shift'] else p['h_c']) == h]
+        if len(idxs) <= 1:
+            continue
+        # Sort by projected t along the house baseline
+        def _project_t_of(i):
+            return _project_t_on_baseline(placements[i]['disp_xy'], baselines[h])
+        idxs.sort(key=_project_t_of)
+        # Compute normal to baseline
+        (bx1,by1),(bx2,by2) = baselines[h]
+        nx, ny = -(by2-by1), (bx2-bx1)
+        nd = (nx*nx + ny*ny) ** 0.5 or 1.0
+        nx, ny = nx/nd, ny/nd
+        # Apply lanes
+        for k, i in enumerate(idxs):
+            li = _lane_index(k)   # 0, +1, -1, +2, -2,...
+            offset = li * lane_step
+            x, y = placements[i]['disp_xy']
+            placements[i]['disp_xy'] = (x + nx*offset, y + ny*offset)
+
     pair_arrows = []
     for h in range(1,13):
         Ps = [p for p in placements if p['h_c'] == h]
