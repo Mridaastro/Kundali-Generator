@@ -245,6 +245,8 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
 def _planet_label(code: str) -> str:
     return HN_ABBR.get(code, code)
 
+SHIFT_ARROW_SCALE = 0.3333  # shorten forward/backward shift arrows to ~1/3 length
+
 def render_kundali_chalit(
     size_pt: float,
     lagna_sign: int,
@@ -444,6 +446,9 @@ def render_kundali_chalit(
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
+            # shorten arrow to ~1/3rd of original length
+            ex = sx + (ex - sx) * SHIFT_ARROW_SCALE
+            ey = sy + (ey - sy) * SHIFT_ARROW_SCALE
             shapes.append(f'''
             <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
