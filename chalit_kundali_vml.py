@@ -457,23 +457,35 @@ def render_kundali_chalit(
                 badge_w, badge_h = 6, 6
                 bx = left + mark_w - badge_w + 0.5; by = top - badge_h/2
                 shapes.append(f'''<v:rect style="position:absolute;left:{bx}pt;top:{by}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8" fillcolor="#ffffff" strokecolor="#666666" strokeweight="0.5pt"/>''')
-        if p['shift']:
+             if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
-            # shorten arrow to ~1/3rd of original length
-            ex = sx + (ex - sx) * shift_arrow_scale
 
-            ey = sy + (ey - sy) * shift_arrow_scale
+            # --- move the arrow START away from the planet glyph ---
+            # direction from planet -> destination (chalit position)
+            dx, dy = (ex - sx), (ey - sy)
+            d = (dx*dx + dy*dy) ** 0.5 or 1.0
+            ux, uy = dx/d, dy/d
 
+            # gap so the arrow does not overlap the planet label
+            gap = max(6.0, mark_h * 0.65)   # scales with glyph height
+            sx2, sy2 = sx + ux*gap, sy + uy*gap
+
+            # --- shorten the arrow from the offset start (~1/3 length) ---
+            ex2 = sx2 + (ex - sx2) * shift_arrow_scale
+            ey2 = sy2 + (ey - sy2) * shift_arrow_scale
+
+            # draw
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{(sx2+ex2)/2 - 8}pt;top:{(sy2+ey2)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
             </v:rect>''')
+
 
     # Close-pair double-headed arrows
     for ar in pair_arrows:
