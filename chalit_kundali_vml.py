@@ -88,6 +88,16 @@ def _poly_centroid(poly):
         xs,ys = zip(*poly); return (sum(xs)/n, sum(ys)/n)
     return (Cx/(6*A), Cy/(6*A))
 
+def _inset_toward_centroid(point, house_poly, inset_pt: float):
+    """Move 'point' by 'inset_pt' toward polygon centroid (staying inside)."""
+    cx, cy = _poly_centroid(house_poly)
+    sx, sy = point
+    dx, dy = (cx - sx), (cy - sy)
+    d = (dx*dx + dy*dy) ** 0.5 or 1.0
+    ux, uy = dx / d, dy / d
+    return (sx + ux * inset_pt, sy + uy * inset_pt)
+
+
 def _baseline_for_house(poly, S: float, house_num: int, start_anchor, end_anchor):
     """Compute baseline oriented from start_anchor toward end_anchor direction.
     Creates deterministic baseline where p1 aligns with start cusp direction 
@@ -343,8 +353,12 @@ def render_kundali_chalit(
                 # Use enhanced cusp positioning for the arrow start position as well
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
-                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
-                disp_xy = start_xy  # Keep arrow start at border
+                
+                # Inset the planet inside its rāśi house so it does not sit on/over the border
+                inset = max(6.0, S*0.02)
+                disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
+                # Also start the arrow from the inset point so it does not start under the glyph
+                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
                 effective_xy = chalit_xy  # Enhanced position in destination house
                 print(f"DEBUG: Forward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
             elif h_c == (h_r - 2) % 12 + 1:  # backward shift  
@@ -354,8 +368,12 @@ def render_kundali_chalit(
                 # Use enhanced cusp positioning for the arrow start position as well
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
-                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
-                disp_xy = start_xy  # Keep arrow start at border
+                
+                # Inset the planet inside its rāśi house so it does not sit on/over the border
+                inset = max(6.0, S*0.02)
+                disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
+                # Also start the arrow from the inset point so it does not start under the glyph
+                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
                 effective_xy = chalit_xy  # Enhanced position in destination house
                 print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
 
