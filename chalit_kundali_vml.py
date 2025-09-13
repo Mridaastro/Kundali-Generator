@@ -416,8 +416,7 @@ def render_kundali_chalit(
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{labels[h]}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
         </v:rect>''')
-        (x1,y),(x2,_) = baselines[h]
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{x1},{y}" to="{x2},{y}" strokecolor="#000000" strokeweight="0.75pt"/>')
+        # baseline removed per requirement
         # mid tick removed as per requirement
 
     # Planet markers + shift arrows
