@@ -350,7 +350,7 @@ def render_kundali_chalit(
         num_w, num_h = 10, 12
         left = cx - num_w/2; top = cy - num_h/2
         shapes.append(f'''
-        <v:rect style="position:absolute;left:{left}pt;top:{top}pt;width:{num_w}pt;height:{num_h}pt;z-index:3" fillcolor="#ffffff" strokecolor="none">
+        <v:rect style="position:absolute;left:{left}pt;top:{top}pt;width:{num_w}pt;height:{num_h}pt;z-index:80" fillcolor="#ffffff" strokecolor="none">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{labels[h]}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
@@ -359,94 +359,53 @@ def render_kundali_chalit(
     # Planet markers + shift arrows
     # Increased textbox size to prevent glyph clipping
     mark_w, mark_h = 18, 14
-
-    # --- Lane layout using *display house* to avoid overlaps ---
-    # A planet that shifted forward/backward is drawn inside its *rashi* house;
-    # others are drawn in their chalit house. So do layout per *display* house.
-    per_disp = {h: [] for h in range(1,13)}
-    for i, pinf in enumerate(placements):
-        disp_h = pinf['h_r'] if pinf['shift'] else pinf['h_c']
-        per_disp[disp_h].append(i)
-
-    def _proj_s_and_dirs(p1, p2, pt):
-        x1,y1=p1; x2,y2=p2; x,y=pt
-        dx,dy=(x2-x1),(y2-y1)
-        L=(dx*dx+dy*dy)**0.5 or 1.0
-        tx,ty=dx/L,dy/L      # tangent
-        nx,ny=-ty,tx         # normal
-        s=(x-x1)*tx+(y-y1)*ty
-        if s<0: s=0
-        if s>L: s=L
-        return s,L,(tx,ty),(nx,ny)
-
-    lane_step = max(mark_h*1.30, 14.0)     # perpendicular spacing
-    min_along = max(mark_w*1.20, 16.0)     # minimal separation along baseline
-    edge_pad  = max(6.0, size_pt*0.035)    # keep a little away from border
-
-    for h, idxs in per_disp.items():
+    # --- Lane layout to avoid planet overlap per house ---
+    # Build per-house index lists
+    per_house = {h: [] for h in range(1,13)}
+    for i, p in enumerate(placements):
+        per_house[p['h_c']].append(i)
+    # Normal vectors and sorting along baseline
+    for h, idxs in per_house.items():
         if not idxs:
             continue
-        p1,p2 = baselines[h]
-        # project each label's *current* position onto baseline of this display house
-        along = []
-        for i in idxs:
-            s, L, (tx,ty), (nx,ny) = _proj_s_and_dirs(p1,p2, placements[i]['disp_xy'])
-            along.append((i, s, L, tx, ty, nx, ny))
-
-        # sort by along-distance
-        along.sort(key=lambda t: t[1])
-        L = along[0][2]
-        tx,ty, nx,ny = along[0][3], along[0][4], along[0][5], along[0][6]
-
-        # cluster close neighbors and spread them
-        adj_s = [s for _,s, *_ in along]
-        clusters=[]; cur=[0]
-        for k in range(1,len(adj_s)):
-            if adj_s[k]-adj_s[k-1] < min_along: cur.append(k)
-            else: clusters.append(cur); cur=[k]
-        clusters.append(cur)
-
-        for cl in clusters:
-            if len(cl)==1: continue
-            m=len(cl); center=sum(adj_s[k] for k in cl)/m
-            start_s=center-(m-1)*min_along/2.0
-            for j,k in enumerate(cl):
-                adj_s[k]=start_s+j*min_along
-
-        # clamp with gentle compression if exceeding edges
-        smin, smax = edge_pad, L-edge_pad
-        curmin, curmax = min(adj_s), max(adj_s)
-        if curmin < smin or curmax > smax:
-            span=max(curmax-curmin,1e-6)
-            scale=(smax-smin)/span
-            adj_s=[smin+(s-curmin)*scale for s in adj_s]
-
-        # assign lanes 0,+1,-1,+2,-2...
+        # Sort by param t (along the baseline)
+        idxs.sort(key=lambda i: placements[i]['t'])
+        # Baseline unit normal for this house
+        p1, p2 = baselines[h]
+        dx, dy = (p2[0] - p1[0]), (p2[1] - p1[1])
+        L = (dx*dx + dy*dy) ** 0.5 or 1.0
+        # Perpendicular (normal) unit vector
+        nx, ny = -dy / L, dx / L
+        # Space between lanes
+        lane_step = max(mark_h * 1.15, 12.0)
+        # Assign lanes in the pattern 0, +1, -1, +2, -2, ...
         def lane_for(k):
-            if k==0: return 0
-            n=(k+1)//2
-            return n if k%2==1 else -n
-
-        for k,(i, s, *_) in enumerate(along):
-            lane=lane_for(k)
-            x = p1[0] + tx*adj_s[k] + nx*lane*lane_step
-            y = p1[1] + ty*adj_s[k] + ny*lane*lane_step
-            # ensure inside polygon of display house
-            if not _point_in_poly((x,y), houses[h]):
-                # try mirrored lane, else progressively inset
-                lane2=-lane
-                x2 = p1[0] + tx*adj_s[k] + nx*lane2*lane_step
-                y2 = p1[1] + ty*adj_s[k] + ny*lane2*lane_step
-                if _point_in_poly((x2,y2), houses[h]):
-                    x,y=x2,y2
+            # k is 0-based order in the sorted list
+            if k == 0:
+                return 0
+            n = (k + 1) // 2
+            return n if k % 2 == 1 else -n
+        for k, i_p in enumerate(idxs):
+            p = placements[i_p]
+            x0, y0 = p['disp_xy']
+            lane = lane_for(k)
+            x = x0 + nx * lane * lane_step
+            y = y0 + ny * lane * lane_step
+            # Keep inside the house polygon; try mirrored lane, else inset retries
+            if not _point_in_poly((x, y), houses[h]):
+                lane_alt = -lane
+                x_alt = x0 + nx * lane_alt * lane_step
+                y_alt = y0 + ny * lane_alt * lane_step
+                if _point_in_poly((x_alt, y_alt), houses[h]):
+                    x, y = x_alt, y_alt
                 else:
-                    fx,fy=x,y
+                    fx, fy = x, y
                     for _ in range(6):
-                        fx,fy = _inset_toward_centroid((fx,fy), houses[h], 6.0)
-                        if _point_in_poly((fx,fy), houses[h]): break
-                    x,y=fx,fy
-            placements[i]['disp_xy_adj']=(x,y)
-
+                        fx, fy = _inset_toward_centroid((fx, fy), houses[h], 6.0)
+                        if _point_in_poly((fx, fy), houses[h]):
+                            break
+                    x, y = fx, fy
+            p['disp_xy_adj'] = (x, y)
 
     for p in placements:
         x, y = p.get('disp_xy_adj', p['disp_xy'])
