@@ -351,11 +351,10 @@ def render_kundali_chalit(
                 extra = _fwd_arc(boundary, lon)
                 degs  = _deg_only(extra)
                 # Use enhanced cusp positioning for the arrow start position as well
-                start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
-                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
+                start_xy = _border_anchor_for_shift(houses, h_r, True, S)  # border center toward next house
                 
                 # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(6.0, S*0.02)
+                inset = max(8.0, S*0.025)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
@@ -366,11 +365,10 @@ def render_kundali_chalit(
                 extra = _fwd_arc(lon, boundary)
                 degs  = _deg_only(extra)
                 # Use enhanced cusp positioning for the arrow start position as well
-                start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
-                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
+                start_xy = _border_anchor_for_shift(houses, h_r, False, S)  # border center toward previous house
                 
                 # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(6.0, S*0.02)
+                inset = max(8.0, S*0.025)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
