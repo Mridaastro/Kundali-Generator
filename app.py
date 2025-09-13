@@ -395,6 +395,43 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytz
 import streamlit as st
+
+# --- UI tweaks: center button & advanced settings, bold expander header ---
+import streamlit as _st_ui_css_injector  # safe double import
+
+_st_ui_css_injector.markdown("""
+
+
+<style>
+/* Bold the expander header text and center it */
+[data-testid="stExpander"] > summary { font-weight: 700 !important; }
+[data-testid="stExpander"] > summary > div { width: 100%; text-align: center; }
+/* Bold & center any first-level heading inside expander */
+[data-testid="stExpander"] h1, 
+[data-testid="stExpander"] h2, 
+[data-testid="stExpander"] h3, 
+[data-testid="stExpander"] h4 { font-weight: 700; text-align: center; }
+/* Center expanders and make width ~50% of page */
+[data-testid="stExpander"] { max-width: 800px; margin-left: auto; margin-right: auto; }
+/* On very wide screens, keep it roughly half */
+@media (min-width: 1200px){
+  [data-testid="stExpander"] { max-width: 50vw; }
+}
+</style>
+
+
+""", unsafe_allow_html=True)
+# --- end UI tweaks ---
+
+
+# --- Helper: centered "Generate Kundali" button ---
+def _render_generate_kundali_button():
+    g_left, g_mid, g_right = st.columns([1, 1, 1])
+    with g_mid:
+        return st.button("Generate Kundali", use_container_width=True, key="generate_kundali_btn")
+# --- end helper ---
+
+
 # === App background helper (for authenticated pages) ===
 import base64, os, streamlit as st
 
@@ -3697,7 +3734,7 @@ with settings_row_col1:
 with settings_row_col2:
     # Generate button right-aligned to Advanced Settings block
     st.markdown("<div style='text-align: right; margin-top: 8px;'>", unsafe_allow_html=True)
-    generate_clicked = st.button("Generate Kundali", key="gen_btn")
+    generate_clicked = _render_generate_kundali_button()
     st.markdown("</div>", unsafe_allow_html=True)
     
     if generate_clicked:
