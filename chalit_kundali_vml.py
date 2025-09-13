@@ -1,4 +1,20 @@
 
+
+def _project_t_on_baseline(xy, baseline):
+    (x1,y1),(x2,y2) = baseline
+    vx, vy = (x2-x1), (y2-y1)
+    denom = (vx*vx + vy*vy) or 1.0
+    t = ((xy[0]-x1)*vx + (xy[1]-y1)*vy) / denom
+    if t < 0: t = 0.0
+    if t > 1: t = 1.0
+    return t
+
+def _lane_index(k):
+    # 0, +1, -1, +2, -2, ...
+    if k == 0: return 0
+    n = (k + 1) // 2
+    return n if k % 2 == 1 else -n
+
 # chalit_kundali_vml.py
 # Exact on-diagram placement for Chalit chart in DOCX (VML).
 # - Planet markers placed along within-house baseline by BhavBegin→BhavEnd fraction
@@ -76,22 +92,6 @@ def _house_polys(S: float):
     }
     return houses
 
-
-
-def _project_t_on_baseline(xy, baseline):
-    (x1,y1),(x2,y2) = baseline
-    vx, vy = (x2-x1), (y2-y1)
-    denom = (vx*vx + vy*vy) or 1.0
-    t = ((xy[0]-x1)*vx + (xy[1]-y1)*vy) / denom
-    if t < 0: t = 0.0
-    if t > 1: t = 1.0
-    return t
-
-def _lane_index(k):
-    # 0, +1, -1, +2, -2, ...
-    if k == 0: return 0
-    n = (k + 1) // 2
-    return n if k % 2 == 1 else -n
 def _poly_centroid(poly):
     A = Cx = Cy = 0.0
     n = len(poly)
@@ -367,10 +367,11 @@ def render_kundali_chalit(
                 extra = _fwd_arc(boundary, lon)
                 degs  = _deg_only(extra)
                 # Use enhanced cusp positioning for the arrow start position as well
-                start_xy = _border_anchor_for_shift(houses, h_r, True, S)  # border center toward next house
+                start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
+                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
                 
                 # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(8.0, S*0.025)
+                inset = max(12.0, S*0.03)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
@@ -381,10 +382,11 @@ def render_kundali_chalit(
                 extra = _fwd_arc(lon, boundary)
                 degs  = _deg_only(extra)
                 # Use enhanced cusp positioning for the arrow start position as well
-                start_xy = _border_anchor_for_shift(houses, h_r, False, S)  # border center toward previous house
+                start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
+                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
                 
                 # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(8.0, S*0.025)
+                inset = max(12.0, S*0.03)
                 disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
                 # Also start the arrow from the inset point so it does not start under the glyph
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
@@ -401,7 +403,7 @@ def render_kundali_chalit(
     # Close-pair arrows (≤ 6°) within each chalit house
     
     # De-overlap planets within the same drawn house using perpendicular lanes
-    lane_step = max(mark_h * 1.15, 12.0)   # px spacing between lanes
+    lane_step = max(S * 0.035, 12.0)   # px spacing between lanes (S-based; avoids mark_h dependency)
     for h in range(1,13):
         # Choose DRAW house: for shifted planets, glyph sits in rashi house; else in chalit house
         idxs = [i for i,p in enumerate(placements) if (p['h_r'] if p['shift'] else p['h_c']) == h]
@@ -416,12 +418,21 @@ def render_kundali_chalit(
         nx, ny = -(by2-by1), (bx2-bx1)
         nd = (nx*nx + ny*ny) ** 0.5 or 1.0
         nx, ny = nx/nd, ny/nd
-        # Apply lanes
+        # Apply lanes (keep points inside polygon)
         for k, i in enumerate(idxs):
             li = _lane_index(k)   # 0, +1, -1, +2, -2,...
             offset = li * lane_step
             x, y = placements[i]['disp_xy']
-            placements[i]['disp_xy'] = (x + nx*offset, y + ny*offset)
+            tx, ty = (x + nx*offset, y + ny*offset)
+            if not _point_in_poly((tx, ty), houses[h]):
+                # try opposite side
+                tx2, ty2 = (x - nx*abs(offset), y - ny*abs(offset))
+                if _point_in_poly((tx2, ty2), houses[h]):
+                    tx, ty = tx2, ty2
+                else:
+                    # fall back: inset toward centroid
+                    tx, ty = _inset_toward_centroid((x, y), houses[h], abs(offset))
+            placements[i]['disp_xy'] = (tx, ty)
 
     pair_arrows = []
     for h in range(1,13):
