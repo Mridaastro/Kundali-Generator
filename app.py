@@ -396,41 +396,13 @@ import pandas as pd
 import pytz
 import streamlit as st
 
-# --- UI tweaks: center button & advanced settings, bold expander header ---
-import streamlit as _st_ui_css_injector  # safe double import
-
-_st_ui_css_injector.markdown("""
-
-
+# --- UI CSS: bold expander header ---
+st.markdown("""
 <style>
-/* Bold the expander header text and center it */
 [data-testid="stExpander"] > summary { font-weight: 700 !important; }
-[data-testid="stExpander"] > summary > div { width: 100%; text-align: center; }
-/* Bold & center any first-level heading inside expander */
-[data-testid="stExpander"] h1, 
-[data-testid="stExpander"] h2, 
-[data-testid="stExpander"] h3, 
-[data-testid="stExpander"] h4 { font-weight: 700; text-align: center; }
-/* Center expanders and make width ~50% of page */
-[data-testid="stExpander"] { max-width: 800px; margin-left: auto; margin-right: auto; }
-/* On very wide screens, keep it roughly half */
-@media (min-width: 1200px){
-  [data-testid="stExpander"] { max-width: 50vw; }
-}
 </style>
-
-
 """, unsafe_allow_html=True)
-# --- end UI tweaks ---
-
-
-# --- Helper: centered "Generate Kundali" button ---
-def _render_generate_kundali_button():
-    g_left, g_mid, g_right = st.columns([1, 1, 1])
-    with g_mid:
-        return st.button("Generate Kundali", use_container_width=True, key="generate_kundali_btn")
-# --- end helper ---
-
+# --- end UI CSS ---
 
 # === App background helper (for authenticated pages) ===
 import base64, os, streamlit as st
@@ -3690,54 +3662,51 @@ st.write("")
 
 api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
 
-# === Advanced Settings (half width) with Generate button right-aligned ===
-settings_row_col1, settings_row_col2 = st.columns([1, 1])
+# === Advanced Settings centered with Generate button above ===
+# Generate button (centered)
+btn_l, btn_m, btn_r = st.columns([1,1,1])
+with btn_m:
+    generate_clicked = st.button("Generate Kundali", key="gen_btn", use_container_width=True)
 
-with settings_row_col1:
+# Advanced Settings (centered, half width)
+a_l, a_m, a_r = st.columns([1,2,1])
+with a_m:
     with st.expander("🎨 Advanced Settings", expanded=False):
-        # Background template selection
-        st.markdown("**Document Background Template**")
-        background_options = {
-            "Default Template": "bg_template.docx",
-            "Background Style 1": "background_1_1757647705677.docx", 
-            "Background Style 2": "background_2_1757647705678.docx",
-            "Background Style 3": "background_3_1757647705678.docx",
-            "Background Style 4": "background_4_1757647705676.docx"
-        }
+                # Background template selection
+                st.markdown("**Document Background Template**")
+                background_options = {
+                    "Default Template": "bg_template.docx",
+                    "Background Style 1": "background_1_1757647705677.docx", 
+                    "Background Style 2": "background_2_1757647705678.docx",
+                    "Background Style 3": "background_3_1757647705678.docx",
+                    "Background Style 4": "background_4_1757647705676.docx"
+                }
         
-        selected_background = st.selectbox(
-            "Choose Background Template",
-            options=list(background_options.keys()),
-            index=0,  # Default to first option
-            key="background_template",
-            label_visibility="collapsed"
-        )
+                selected_background = st.selectbox(
+                    "Choose Background Template",
+                    options=list(background_options.keys()),
+                    index=0,  # Default to first option
+                    key="background_template",
+                    label_visibility="collapsed"
+                )
     
-        # Color scheme selection
-        st.markdown("**Color Scheme**")
-        color_options = {
-            "Orange (Default)": "#FF6600",
-            "Pink Lace": "#F0D7F5", 
-            "Mint": "#99EDC3",
-            "Coral": "#FE7D6A",
-            "Rose": "#FC94AF"
-        }
+                # Color scheme selection
+                st.markdown("**Color Scheme**")
+                color_options = {
+                    "Orange (Default)": "#FF6600",
+                    "Pink Lace": "#F0D7F5", 
+                    "Mint": "#99EDC3",
+                    "Coral": "#FE7D6A",
+                    "Rose": "#FC94AF"
+                }
         
-        selected_color = st.selectbox(
-            "Choose Color Scheme", 
-            options=list(color_options.keys()),
-            index=0,  # Default to orange
-            key="color_scheme",
-            label_visibility="collapsed"
-        )
-
-with settings_row_col2:
-    # Generate button right-aligned to Advanced Settings block
-    st.markdown("<div style='text-align: right; margin-top: 8px;'>", unsafe_allow_html=True)
-    generate_clicked = _render_generate_kundali_button()
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    if generate_clicked:
+                selected_color = st.selectbox(
+                    "Choose Color Scheme", 
+                    options=list(color_options.keys()),
+                    index=0,  # Default to orange
+                    key="color_scheme",
+                    label_visibility="collapsed"
+                )if generate_clicked:
         print("DEBUG: Generate Kundali button clicked!")
         st.session_state['generate_clicked'] = True
         st.session_state['submitted'] = True
