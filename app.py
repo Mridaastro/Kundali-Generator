@@ -395,6 +395,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytz
 import streamlit as st
+
+# --- UI CSS: bold expander header ---
+st.markdown("""
+<style>
+[data-testid="stExpander"] > summary { font-weight: 700 !important; }
+</style>
+""", unsafe_allow_html=True)
+# --- end UI CSS ---
+
 # === App background helper (for authenticated pages) ===
 import base64, os, streamlit as st
 
@@ -1523,7 +1532,7 @@ def sidereal_positions(dt_utc):
                     ('Ve', swe.VENUS), ('Sa', swe.SATURN)]:
         xx, _ = swe.calc_ut(jd, p, flags)
         out[code] = xx[0] % 360.0
-    xx, _ = swe.calc_ut(jd, swe.MEAN_NODE, flags)  # Mean node locked
+    xx, _ = swe.calc_ut(jd, swe.TRUE_NODE, flags)  # True node (default)
     out['Ra'] = xx[0] % 360.0
     out['Ke'] = (out['Ra'] + 180.0) % 360.0
     ay = swe.get_ayanamsa_ut(jd)
@@ -1540,7 +1549,8 @@ def ascendant_sign(jd, lat, lon, ay):
 def navamsa_sign_from_lon_sid(lon_sid):
     sign = int(lon_sid // 30) + 1
     deg_in_sign = lon_sid % 30.0
-    pada = int(deg_in_sign // (30.0 / 9.0))
+    # use half-open slices with tiny epsilon to avoid boundary flips
+    pada = int(((deg_in_sign + 1e-9) // (30.0 / 9.0)))
     if sign in (1, 4, 7, 10): start = sign
     elif sign in (2, 5, 8, 11): start = ((sign + 8 - 1) % 12) + 1
     else: start = ((sign + 4 - 1) % 12) + 1
@@ -3165,10 +3175,6 @@ with row1c2:
                           key="place_input",
                           label_visibility="collapsed")
     
-    # Auto-remove dropdown and dependent state if place is cleared
-    if not (place or "").strip():
-        for _k in ('place_suggestions','selected_place','pob_choice','pob_display','pob_lat','pob_lon','original_lat','original_lon','last_place_checked','tz_error_msg'):
-            st.session_state.pop(_k, None)
     # Show dropdown for place suggestions if available
     if st.session_state.get('place_suggestions'):
         candidates = st.session_state['place_suggestions']
@@ -3656,59 +3662,57 @@ st.write("")
 
 api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
 
-# === Advanced Settings (half width) with Generate button right-aligned ===
-settings_row_col1, settings_row_col2 = st.columns([1, 1])
+# === Advanced Settings centered with Generate button above ===
+# Generate button (centered)
+btn_l, btn_m, btn_r = st.columns([1,1,1])
+with btn_m:
+    generate_clicked = st.button("Generate Kundali", key="gen_btn", use_container_width=True)
 
-with settings_row_col1:
+# Advanced Settings (centered, half width)
+a_l, a_m, a_r = st.columns([1,2,1])
+with a_m:
     with st.expander("🎨 Advanced Settings", expanded=False):
-        # Background template selection
-        st.markdown("**Document Background Template**")
-        background_options = {
-            "Default Template": "bg_template.docx",
-            "Background Style 1": "background_1_1757647705677.docx", 
-            "Background Style 2": "background_2_1757647705678.docx",
-            "Background Style 3": "background_3_1757647705678.docx",
-            "Background Style 4": "background_4_1757647705676.docx"
-        }
+                # Background template selection
+                st.markdown("**Document Background Template**")
+                background_options = {
+                    "Default Template": "bg_template.docx",
+                    "Background Style 1": "background_1_1757647705677.docx", 
+                    "Background Style 2": "background_2_1757647705678.docx",
+                    "Background Style 3": "background_3_1757647705678.docx",
+                    "Background Style 4": "background_4_1757647705676.docx"
+                }
         
-        selected_background = st.selectbox(
-            "Choose Background Template",
-            options=list(background_options.keys()),
-            index=0,  # Default to first option
-            key="background_template",
-            label_visibility="collapsed"
-        )
+                selected_background = st.selectbox(
+                    "Choose Background Template",
+                    options=list(background_options.keys()),
+                    index=0,  # Default to first option
+                    key="background_template",
+                    label_visibility="collapsed"
+                )
     
-        # Color scheme selection
-        st.markdown("**Color Scheme**")
-        color_options = {
-            "Orange (Default)": "#FF6600",
-            "Pink Lace": "#F0D7F5", 
-            "Mint": "#99EDC3",
-            "Coral": "#FE7D6A",
-            "Rose": "#FC94AF"
-        }
+                # Color scheme selection
+                st.markdown("**Color Scheme**")
+                color_options = {
+                    "Orange (Default)": "#FF6600",
+                    "Pink Lace": "#F0D7F5", 
+                    "Mint": "#99EDC3",
+                    "Coral": "#FE7D6A",
+                    "Rose": "#FC94AF"
+                }
         
-        selected_color = st.selectbox(
-            "Choose Color Scheme", 
-            options=list(color_options.keys()),
-            index=0,  # Default to orange
-            key="color_scheme",
-            label_visibility="collapsed"
-        )
-
-with settings_row_col2:
-    # Generate button right-aligned to Advanced Settings block
-    st.markdown("<div style='text-align: right; margin-top: 8px;'>", unsafe_allow_html=True)
-    generate_clicked = st.button("Generate Kundali", key="gen_btn")
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    if generate_clicked:
-        print("DEBUG: Generate Kundali button clicked!")
-        st.session_state['generate_clicked'] = True
-        st.session_state['submitted'] = True
-        print("DEBUG: About to rerun after button click")
-        st.rerun()  # Immediate rerun to show validation
+                selected_color = st.selectbox(
+                    "Color Scheme",
+                    options=list(color_options.keys()),
+                    index=0,
+                    key="color_scheme",
+                    label_visibility="collapsed"
+                )
+if generate_clicked:
+    print("DEBUG: Generate Kundali button clicked!")
+    st.session_state['generate_clicked'] = True
+    st.session_state['submitted'] = True
+    print("DEBUG: About to rerun after button click")
+    st.rerun()  # Immediate rerun to show validation
 
 # --- Validation gate computed on rerun after click ---
 can_generate = False
