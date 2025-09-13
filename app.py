@@ -104,7 +104,8 @@ def decimal_to_dms_celestial(decimal_deg):
 # ===== Background Template Helper (stable image) =====
 import os
 from io import BytesIO
-from docx import Document as _WordDocument
+from docx import Document
+from chalit_kundali_vml import render_kundali_chalit as _WordDocument
 from docx.shared import RGBColor
 
 TEMPLATE_DOCX = "bg_template.docx"
@@ -687,6 +688,7 @@ def _clamp_in_bbox(left, top, w, h, bbox, pad):
 
 
 from docx import Document
+from chalit_kundali_vml import render_kundali_chalit
 from docx.enum.table import WD_ROW_HEIGHT_RULE, WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
@@ -4554,16 +4556,23 @@ if can_generate:
                                           run_text=False,
                                           line_exact=True)
         hdr_p = cell1.paragraphs[-1]
-        # Lagna chart with planets in single box per house
-        rasi_house_planets = build_chalit_house_planets_marked(
-            sidelons, begins_sid)
+        # Lagna chart with precise Chalit placement (exact positions + arrows)
+        rasi_house_planets = build_chalit_house_planets_marked(sidelons, begins_sid)
+        # Build flags for highlights
+        _st_all = compute_statuses_all(sidelons)
+        flags_by_planet = {code: _make_flags('rasi', _st_all[code]) for code in ['Su','Mo','Ma','Me','Ju','Ve','Sa','Ra','Ke']}
         hdr_p._p.addnext(
-            kundali_with_planets(size_pt=CHART_W_PT,
-                                 lagna_sign=lagna_sign,
-                                 house_planets=rasi_house_planets,
-                                 begins_sid=begins_sid,
-                                 mids_sid=mids_sid,
-                                 color=user_color))
+            render_kundali_chalit(size_pt=CHART_W_PT,
+                                  lagna_sign=lagna_sign,
+                                  sidelons=sidelons,
+                                  begins_sid=begins_sid,
+                                  mids_sid=mids_sid,
+                                  pair_threshold_deg=6.0,
+                                  color=user_color,
+                                  cusp_snap_deg=0.5,
+                                  cusp_bias_deg=2.0,
+                                  flags_by_planet=flags_by_planet)
+        )
 
         # Original Navamsa chart title - Enhanced styling for visibility
         cell2 = kt.rows[1].cells[0]
