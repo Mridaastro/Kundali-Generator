@@ -439,10 +439,6 @@ def render_kundali_chalit(
     mark_w, mark_h = 16, 12
     for p in placements:
         x, y = p['disp_xy']
-        # Final safety inset for shifted planets so glyph never touches/crosses border
-        if p['shift']:
-            inset2 = max(mark_w*0.7, 12.0)
-            x, y = _inset_toward_centroid((x, y), houses[p['h_r']], inset2)
         left = x - mark_w/2; top = y - mark_h/2
         shapes.append(f'''
         <v:rect style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="none" fillcolor="#ffffff" strokeweight="0.75pt">
@@ -463,8 +459,7 @@ def render_kundali_chalit(
                 shapes.append(f'''<v:rect style="position:absolute;left:{bx}pt;top:{by}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8" fillcolor="#ffffff" strokecolor="#666666" strokeweight="0.5pt"/>''')
         if p['shift']:
             a = p['shift']
-            sx, sy = x, y
-            ex, ey = a['end']
+            sx, sy = a['start']; ex, ey = a['end']
             # shorten arrow to ~1/3rd of original length
             ex = sx + (ex - sx) * shift_arrow_scale
 
