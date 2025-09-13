@@ -255,7 +255,7 @@ def render_kundali_chalit(
     color: str = "#FF6600",          # User-selected color for theming
     cusp_snap_deg: float = 0.5,      # Snap to corner/cusp if within this many degrees
     cusp_bias_deg: float = 2.0       # Bias toward corner/cusp if within this many degrees
-, planet_labels=None, planet_flags=None):
+, planet_labels=None, planet_flags=None, shift_arrow_scale: float = 0.3333, shift_label_offset_pt: float = 8.0):
     """Return a VML group (XML element) to append to a python-docx cell."""
     S = float(size_pt)
     houses = _house_polys(S)
@@ -443,15 +443,15 @@ def render_kundali_chalit(
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
             # shorten arrow to ~1/3rd of original length
-            ex = sx + (ex - sx) * SHIFT_ARROW_SCALE
+            ex = sx + (ex - sx) * shift_arrow_scale
 
-            ey = sy + (ey - sy) * SHIFT_ARROW_SCALE
+            ey = sy + (ey - sy) * shift_arrow_scale
 
             shapes.append(f'''
             <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + SHIFT_LABEL_OFFSET_PT}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
@@ -464,7 +464,7 @@ def render_kundali_chalit(
         <v:line style="position:absolute;z-index:9" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#7a2e2e" strokeweight="1pt">
           <v:stroke endarrow="classic" startarrow="classic"/>
         </v:line>
-        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + SHIFT_LABEL_OFFSET_PT}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
+        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{ar['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
