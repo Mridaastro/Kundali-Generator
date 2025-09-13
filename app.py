@@ -3706,7 +3706,8 @@ with a_m:
                     index=0,  # Default to orange
                     key="color_scheme",
                     label_visibility="collapsed"
-                )if generate_clicked:
+                
+if generate_clicked:
         print("DEBUG: Generate Kundali button clicked!")
         st.session_state['generate_clicked'] = True
         st.session_state['submitted'] = True
