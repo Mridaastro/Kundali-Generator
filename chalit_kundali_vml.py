@@ -1,12 +1,4 @@
 
-def _bbox(cx, cy, w, h):
-    return (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0)
-
-def _rects_overlap(a, b):
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    return not (ax2 <= bx1 or bx2 <= ax1 or ay2 <= by1 or by2 <= ay1)
-
 # chalit_kundali_vml.py
 # Exact on-diagram placement for Chalit chart in DOCX (VML).
 # - Planet markers placed along within-house baseline by BhavBegin→BhavEnd fraction
@@ -106,6 +98,14 @@ def _inset_toward_centroid(point, house_poly, inset_pt: float):
     return (sx + ux * inset_pt, sy + uy * inset_pt)
 
 
+
+def _bbox(cx, cy, w, h):
+    return (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0)
+
+def _rects_overlap(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 <= bx1 or bx2 <= ax1 or ay2 <= by1 or by2 <= ay1)
 def _baseline_for_house(poly, S: float, house_num: int, start_anchor, end_anchor):
     """Compute baseline oriented from start_anchor toward end_anchor direction.
     Creates deterministic baseline where p1 aligns with start cusp direction 
@@ -263,7 +263,7 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
 def _planet_label(code: str) -> str:
     return HN_ABBR.get(code, code)
 
-MID_SNAP_FRAC = 0.05  # ±5% of arc ~= 'mid bhava'
+MID_SNAP_FRAC = 0.05  # ±5% band around mid-bhava treated as 'mid'
 
 def render_kundali_chalit(
     size_pt: float,
@@ -388,23 +388,22 @@ def render_kundali_chalit(
                 print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
 
 
-        # --- Mid-bhava handling & center-overlap avoidance ---
+        # --- Mid-bhava placement + center-overlap fix ---
         try:
             mid_t = mid_fractions[h_c]
         except Exception:
             mid_t = 0.5
-        num_w, num_h = 10, 12  # house number box size
-        mark_w, mark_h = 16, 12
-        gap = max(2.0, mark_h*0.2)
+        num_w, num_h = 10, 12    # house number box size (see draw section)
+        mark_w, mark_h = 16, 12  # planet label size (see draw section)
         cx, cy = _poly_centroid(houses[h_c])
-        # If near the house mid, position directly below the house number
-        if abs(t - mid_t) <= MID_SNAP_FRAC:
+        gap = max(2.0, mark_h * 0.25)
+        overlap_with_center = _rects_overlap(_bbox(chalit_xy[0], chalit_xy[1], mark_w, mark_h),
+                                             _bbox(cx, cy, num_w, num_h))
+        if abs(t - mid_t) <= MID_SNAP_FRAC or overlap_with_center:
             disp_xy = (cx, cy + (num_h/2.0 + gap + mark_h/2.0))
         else:
-            # If the label would overlap the house number, also push it below
-            if _rects_overlap(_bbox(disp_xy[0], disp_xy[1], mark_w, mark_h),
-                              _bbox(cx, cy, num_w, num_h)):
-                disp_xy = (cx, cy + (num_h/2.0 + gap + mark_h/2.0))
+            disp_xy = chalit_xy
+        effective_xy = chalit_xy
         placements.append(dict(
             code=code, label=_planet_label(code),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
