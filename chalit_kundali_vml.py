@@ -88,6 +88,8 @@ def _poly_centroid(poly):
         xs,ys = zip(*poly); return (sum(xs)/n, sum(ys)/n)
     return (Cx/(6*A), Cy/(6*A))
 
+def _bbox(cx, cy, w, h):
+    return (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0)
 
 def _point_in_poly(pt, poly):
     """Ray casting point in polygon (inclusive)."""
@@ -423,9 +425,9 @@ def render_kundali_chalit(
             step_t = max(mark_w * 0.9, 10.0)
             tries = 0
             rect = _bbox(x, y, mark_w, mark_h)
-            def any_overlap(r):
+            def any_rects_overlap(r):
                 return any(not (r[2] <= pr[0] or pr[2] <= r[0] or r[3] <= pr[1] or pr[3] <= r[1]) for pr in placed_rects)
-            while any_overlap(rect) and tries < 12:
+            while any_rects_overlap(rect) and tries < 12:
                 # alternate +t and -t moves
                 direction = 1 if tries % 2 == 0 else -1
                 x += direction * tx * step_t
