@@ -1,3 +1,42 @@
+
+def _bbox(cx, cy, w, h):
+    return (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0)
+
+def _rects_overlap(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 <= bx1 or bx2 <= ax1 or ay2 <= by1 or by2 <= ay1)
+
+def _ensure_point_inside(pt, poly, step_inset=6.0, max_iter=8):
+    """Move point toward polygon centroid until inside."""
+    x, y = pt
+    if _point_in_poly((x, y), poly):
+        return (x, y)
+    for _ in range(max_iter):
+        x, y = _inset_toward_centroid((x, y), poly, step_inset)
+        if _point_in_poly((x, y), poly):
+            break
+    return (x, y)
+
+def _rect_fully_inside(cx, cy, w, h, poly):
+    """Check if all 4 rectangle corners are inside the polygon."""
+    corners = [(cx - w/2.0, cy - h/2.0),
+               (cx + w/2.0, cy - h/2.0),
+               (cx - w/2.0, cy + h/2.0),
+               (cx + w/2.0, cy + h/2.0)]
+    return all(_point_in_poly(c, poly) for c in corners)
+
+def _ensure_rect_inside(cx, cy, w, h, poly, step_inset=4.0, max_iter=10):
+    """Inset the rectangle toward centroid until fully inside the polygon."""
+    x, y = cx, cy
+    if _rect_fully_inside(x, y, w, h, poly):
+        return (x, y)
+    for _ in range(max_iter):
+        x, y = _inset_toward_centroid((x, y), poly, step_inset)
+        if _rect_fully_inside(x, y, w, h, poly):
+            break
+    return (x, y)
+
 # chalit_kundali_vml.py
 # Exact on-diagram placement for Chalit chart in DOCX (VML).
 # - Planet markers placed along within-house baseline by BhavBegin→BhavEnd fraction
