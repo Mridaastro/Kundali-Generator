@@ -263,7 +263,9 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
 def _planet_label(code: str) -> str:
     return HN_ABBR.get(code, code)
 
-MID_SNAP_FRAC = 0.05  # ±5% of arc ~= 'mid bhava'\n\ndef render_kundali_chalit(
+MID_SNAP_FRAC = 0.05  # ±5% of arc ~= 'mid bhava'
+
+def render_kundali_chalit(
     size_pt: float,
     lagna_sign: int,
     sidelons: Dict[str, float],     # Su,Mo,Ma,Me,Ju,Ve,Sa,Ra,Ke in degrees 0..360 (sidereal)
