@@ -398,6 +398,7 @@ def render_kundali_chalit(
                 return 0
             n = (k + 1) // 2
             return n if k % 2 == 1 else -n
+        placed_rects = []
         for k, i_p in enumerate(idxs):
             p = placements[i_p]
             x0, y0 = p['disp_xy']
@@ -418,6 +419,26 @@ def render_kundali_chalit(
                         if _point_in_poly((fx, fy), houses[h]):
                             break
                     x, y = fx, fy
+            # Slide along baseline if overlapping previously placed labels in this house
+            tx, ty = (dx / L, dy / L) if L else (1.0, 0.0)
+            step_t = max(mark_w * 0.9, 10.0)
+            tries = 0
+            rect = _bbox(x, y, mark_w, mark_h)
+            def any_overlap(r):
+                return any(not (r[2] <= pr[0] or pr[2] <= r[0] or r[3] <= pr[1] or pr[3] <= r[1]) for pr in placed_rects)
+            while any_overlap(rect) and tries < 12:
+                # alternate +t and -t moves
+                direction = 1 if tries % 2 == 0 else -1
+                x += direction * tx * step_t
+                y += direction * ty * step_t
+                # keep inside polygon; if not, backtrack and reduce step
+                if not _point_in_poly((x,y), houses[h]):
+                    x -= direction * tx * step_t
+                    y -= direction * ty * step_t
+                    step_t *= 0.75
+                rect = _bbox(x, y, mark_w, mark_h)
+                tries += 1
+            placed_rects.append(rect)
             # Exclude collision with the house-number box near centroid
             cx, cy = _poly_centroid(houses[h])
             x, y   = _nudge_away_from_point(x, y, cx, cy, radius=18.0)
