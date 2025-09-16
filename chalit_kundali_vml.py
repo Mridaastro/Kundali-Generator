@@ -107,6 +107,19 @@ def _point_in_poly(pt, poly):
     return inside
 
 def _inset_toward_centroid(point, house_poly, inset_pt: float):
+
+def _nudge_away_from_point(x, y, bx, by, radius=18.0):
+    dx, dy = x - bx, y - by
+    d2 = dx*dx + dy*dy
+    if d2 == 0:
+        # push right by radius
+        return x + radius, y
+    if d2 < radius*radius:
+        d = (d2) ** 0.5
+        ux, uy = dx / d, dy / d
+        return bx + ux * radius, by + uy * radius
+    return x, y
+
     """Move 'point' by 'inset_pt' toward polygon centroid (staying inside)."""
     cx, cy = _poly_centroid(house_poly)
     sx, sy = point
@@ -405,6 +418,9 @@ def render_kundali_chalit(
                         if _point_in_poly((fx, fy), houses[h]):
                             break
                     x, y = fx, fy
+            # Exclude collision with the house-number box near centroid
+            cx, cy = _poly_centroid(houses[h])
+            x, y   = _nudge_away_from_point(x, y, cx, cy, radius=18.0)
             p['disp_xy_adj'] = (x, y)
 
     for p in placements:
