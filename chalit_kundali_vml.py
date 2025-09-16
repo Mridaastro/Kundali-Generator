@@ -451,12 +451,8 @@ def render_kundali_chalit(
             is_self = _flag(planet_flags, p['code'], 'self')
             is_varg = _flag(planet_flags, p['code'], 'vargottama')
             if is_self:
-                # draw a thin circle around the planet label instead of a dot
-                pad = 2.0
-                d = max(mark_w, mark_h) + 2*pad
-                cx = left + mark_w/2; cy = top + mark_h/2
-                shapes.append(f'''<v:oval style="position:absolute;left:{cx - d/2}pt;top:{cy - d/2}pt;width:{d}pt;height:{d}pt;z-index:8" fillcolor="none" strokecolor="#333333" strokeweight="1pt"/>''')
-
+                cx_o = left + mark_w - 4; cy_o = top + mark_h - 4
+                shapes.append(f'''<v:oval style="position:absolute;left:{cx_o-2}pt;top:{cy_o-2}pt;width:4pt;height:4pt;z-index:8" fillcolor="#000000" strokecolor="none"/>''')
             if is_varg:
                 badge_w, badge_h = 6, 6
                 bx = left + mark_w - badge_w + 0.5; by = top - badge_h/2
@@ -464,16 +460,20 @@ def render_kundali_chalit(
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
-            # shorten arrow to ~1/3rd of original length
-            ex = sx + (ex - sx) * shift_arrow_scale
-
-            ey = sy + (ey - sy) * shift_arrow_scale
-
+            # move arrow start away from planet so label is not obscured
+            dx, dy = (ex - sx), (ey - sy)
+            d = (dx*dx + dy*dy) ** 0.5 or 1.0
+            ux, uy = dx/d, dy/d
+            gap = max(6.0, mark_h * 0.65)
+            sx2, sy2 = sx + ux*gap, sy + uy*gap
+            # shorten arrow from the offset start (~1/3 of remaining length)
+            ex2 = sx2 + (ex - sx2) * shift_arrow_scale
+            ey2 = sy2 + (ey - sy2) * shift_arrow_scale
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{(sx2+ex2)/2 - 8}pt;top:{(sy2+ey2)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
