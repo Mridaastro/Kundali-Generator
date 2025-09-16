@@ -307,6 +307,8 @@ def render_kundali_chalit(
                 border_xy = _border_anchor_for_shift(houses, h_r, True, S)
                 disp_xy   = _inset_toward_centroid(border_xy, houses[h_r], inset_shift_pt)
 
+                disp_xy = _ensure_point_inside(disp_xy, houses[h_r], 6.0, 8)
+                chalit_xy = _ensure_point_inside(chalit_xy, houses[h_c], 6.0, 8)
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")
                 effective_xy = chalit_xy
 
@@ -317,6 +319,8 @@ def render_kundali_chalit(
                 border_xy = _border_anchor_for_shift(houses, h_r, False, S)
                 disp_xy   = _inset_toward_centroid(border_xy, houses[h_r], inset_shift_pt)
 
+                disp_xy = _ensure_point_inside(disp_xy, houses[h_r], 6.0, 8)
+                chalit_xy = _ensure_point_inside(chalit_xy, houses[h_c], 6.0, 8)
                 shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")
                 effective_xy = chalit_xy
 
@@ -443,6 +447,7 @@ def render_kundali_chalit(
             # Exclude collision with the house-number box near centroid
             cx, cy = _poly_centroid(houses[h])
             x, y   = _nudge_away_from_point(x, y, cx, cy, radius=18.0)
+            x, y = _ensure_rect_inside(x, y, mark_w, mark_h, houses[h], step_inset=4.0, max_iter=12)
             p['disp_xy_adj'] = (x, y)
 
     for p in placements:
