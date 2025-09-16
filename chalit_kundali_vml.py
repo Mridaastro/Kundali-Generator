@@ -107,6 +107,13 @@ def _point_in_poly(pt, poly):
     return inside
 
 def _inset_toward_centroid(point, house_poly, inset_pt: float):
+    """Move 'point' by 'inset_pt' toward polygon centroid (staying inside)."""
+    cx, cy = _poly_centroid(house_poly)
+    sx, sy = point
+    dx, dy = (cx - sx), (cy - sy)
+    d = (dx*dx + dy*dy) ** 0.5 or 1.0
+    ux, uy = dx / d, dy / d
+    return (sx + ux * inset_pt, sy + uy * inset_pt)
 
 def _nudge_away_from_point(x, y, bx, by, radius=18.0):
     dx, dy = x - bx, y - by
@@ -119,14 +126,6 @@ def _nudge_away_from_point(x, y, bx, by, radius=18.0):
         ux, uy = dx / d, dy / d
         return bx + ux * radius, by + uy * radius
     return x, y
-
-    """Move 'point' by 'inset_pt' toward polygon centroid (staying inside)."""
-    cx, cy = _poly_centroid(house_poly)
-    sx, sy = point
-    dx, dy = (cx - sx), (cy - sy)
-    d = (dx*dx + dy*dy) ** 0.5 or 1.0
-    ux, uy = dx / d, dy / d
-    return (sx + ux * inset_pt, sy + uy * inset_pt)
 
 def _get_cusp_corners_for_house(house_num: int, S: float):
     """Get (start_cusp, end_cusp) for a house.
