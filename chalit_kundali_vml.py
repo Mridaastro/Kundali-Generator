@@ -1,4 +1,12 @@
 
+def _bbox(cx, cy, w, h):
+    return (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0)
+
+def _rects_overlap(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 <= bx1 or bx2 <= ax1 or ay2 <= by1 or by2 <= ay1)
+
 # chalit_kundali_vml.py
 # Exact on-diagram placement for Chalit chart in DOCX (VML).
 # - Planet markers placed along within-house baseline by BhavBegin→BhavEnd fraction
@@ -255,7 +263,7 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
 def _planet_label(code: str) -> str:
     return HN_ABBR.get(code, code)
 
-def render_kundali_chalit(
+MID_SNAP_FRAC = 0.05  # ±5% of arc ~= 'mid bhava'\n\ndef render_kundali_chalit(
     size_pt: float,
     lagna_sign: int,
     sidelons: Dict[str, float],     # Su,Mo,Ma,Me,Ju,Ve,Sa,Ra,Ke in degrees 0..360 (sidereal)
@@ -377,6 +385,24 @@ def render_kundali_chalit(
                 effective_xy = chalit_xy  # Enhanced position in destination house
                 print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
 
+
+        # --- Mid-bhava handling & center-overlap avoidance ---
+        try:
+            mid_t = mid_fractions[h_c]
+        except Exception:
+            mid_t = 0.5
+        num_w, num_h = 10, 12  # house number box size
+        mark_w, mark_h = 16, 12
+        gap = max(2.0, mark_h*0.2)
+        cx, cy = _poly_centroid(houses[h_c])
+        # If near the house mid, position directly below the house number
+        if abs(t - mid_t) <= MID_SNAP_FRAC:
+            disp_xy = (cx, cy + (num_h/2.0 + gap + mark_h/2.0))
+        else:
+            # If the label would overlap the house number, also push it below
+            if _rects_overlap(_bbox(disp_xy[0], disp_xy[1], mark_w, mark_h),
+                              _bbox(cx, cy, num_w, num_h)):
+                disp_xy = (cx, cy + (num_h/2.0 + gap + mark_h/2.0))
         placements.append(dict(
             code=code, label=_planet_label(code),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
