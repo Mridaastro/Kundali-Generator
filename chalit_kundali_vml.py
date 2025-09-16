@@ -88,6 +88,16 @@ def _poly_centroid(poly):
         xs,ys = zip(*poly); return (sum(xs)/n, sum(ys)/n)
     return (Cx/(6*A), Cy/(6*A))
 
+def _inset_toward_centroid(point, house_poly, inset_pt: float):
+    """Move 'point' by 'inset_pt' toward polygon centroid (staying inside)."""
+    cx, cy = _poly_centroid(house_poly)
+    sx, sy = point
+    dx, dy = (cx - sx), (cy - sy)
+    d = (dx*dx + dy*dy) ** 0.5 or 1.0
+    ux, uy = dx / d, dy / d
+    return (sx + ux * inset_pt, sy + uy * inset_pt)
+
+
 def _baseline_for_house(poly, S: float, house_num: int, start_anchor, end_anchor):
     """Compute baseline oriented from start_anchor toward end_anchor direction.
     Creates deterministic baseline where p1 aligns with start cusp direction 
@@ -245,8 +255,6 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
 def _planet_label(code: str) -> str:
     return HN_ABBR.get(code, code)
 
-SHIFT_ARROW_SCALE = 0.3333  # shorten forward/backward shift arrows to ~1/3 length
-
 def render_kundali_chalit(
     size_pt: float,
     lagna_sign: int,
@@ -257,7 +265,7 @@ def render_kundali_chalit(
     color: str = "#FF6600",          # User-selected color for theming
     cusp_snap_deg: float = 0.5,      # Snap to corner/cusp if within this many degrees
     cusp_bias_deg: float = 2.0       # Bias toward corner/cusp if within this many degrees
-, planet_labels=None, planet_flags=None):
+, planet_labels=None, planet_flags=None, shift_arrow_scale: float = 0.3333, shift_label_offset_pt: float = 8.0):
     """Return a VML group (XML element) to append to a python-docx cell."""
     S = float(size_pt)
     houses = _house_polys(S)
@@ -345,8 +353,12 @@ def render_kundali_chalit(
                 # Use enhanced cusp positioning for the arrow start position as well
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
-                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
-                disp_xy = start_xy  # Keep arrow start at border
+                
+                # Inset the planet inside its rāśi house so it does not sit on/over the border
+                inset = max(12.0, S*0.03)
+                disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
+                # Also start the arrow from the inset point so it does not start under the glyph
+                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
                 effective_xy = chalit_xy  # Enhanced position in destination house
                 print(f"DEBUG: Forward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
             elif h_c == (h_r - 2) % 12 + 1:  # backward shift  
@@ -356,8 +368,12 @@ def render_kundali_chalit(
                 # Use enhanced cusp positioning for the arrow start position as well
                 start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
                 start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
-                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
-                disp_xy = start_xy  # Keep arrow start at border
+                
+                # Inset the planet inside its rāśi house so it does not sit on/over the border
+                inset = max(12.0, S*0.03)
+                disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
+                # Also start the arrow from the inset point so it does not start under the glyph
+                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
                 effective_xy = chalit_xy  # Enhanced position in destination house
                 print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
 
@@ -416,10 +432,8 @@ def render_kundali_chalit(
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{labels[h]}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
         </v:rect>''')
-        (x1,y),(x2,_) = baselines[h]
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{x1},{y}" to="{x2},{y}" strokecolor="#000000" strokeweight="0.75pt"/>')
-        mx,my = _interpolate((x1,y),(x2,y),0.5)
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{mx},{y-3}" to="{mx},{y+3}" strokecolor="#000000" strokeweight="0.5pt"/>')
+        # baseline removed per requirement
+        # mid tick removed as per requirement
 
     # Planet markers + shift arrows
     mark_w, mark_h = 16, 12
@@ -446,14 +460,20 @@ def render_kundali_chalit(
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
-            # shorten arrow to ~1/3rd of original length
-            ex = sx + (ex - sx) * SHIFT_ARROW_SCALE
-            ey = sy + (ey - sy) * SHIFT_ARROW_SCALE
+            # move arrow start away from planet so label is not obscured
+            dx, dy = (ex - sx), (ey - sy)
+            d = (dx*dx + dy*dy) ** 0.5 or 1.0
+            ux, uy = dx/d, dy/d
+            gap = max(6.0, mark_h * 0.65)
+            sx2, sy2 = sx + ux*gap, sy + uy*gap
+            # shorten arrow from the offset start (~1/3 of remaining length)
+            ex2 = sx2 + (ex - sx2) * shift_arrow_scale
+            ey2 = sy2 + (ey - sy2) * shift_arrow_scale
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 8}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{(sx2+ex2)/2 - 8}pt;top:{(sy2+ey2)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
@@ -466,7 +486,7 @@ def render_kundali_chalit(
         <v:line style="position:absolute;z-index:9" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#7a2e2e" strokeweight="1pt">
           <v:stroke endarrow="classic" startarrow="classic"/>
         </v:line>
-        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 10}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
+        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{ar['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
