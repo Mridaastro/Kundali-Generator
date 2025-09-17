@@ -8,11 +8,12 @@
 from math import fmod
 from typing import Dict, List, Tuple
 from docx.oxml import parse_xml
+from kundali_markers_lib import _calculate_planet_status, UP_ARROW, DOWN_ARROW, COMBUST, VARG_SQ
 
 HN_ABBR = {'Su': 'सू', 'Mo': 'चं', 'Ma': 'मं', 'Me': 'बु', 'Ju': 'गु', 'Ve': 'शु', 'Sa': 'श', 'Ra': 'रा', 'Ke': 'के'}
 
 # ---- Visual constants for shift arrows ----
-ARROW_LEN_PX = 14
+ARROW_LEN_PX = 9
 ARROW_START_GAP = 6
 ARROW_LABEL_OFFSET = 12
 
@@ -106,8 +107,19 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
     sy = max(pad, min(sy, S - pad))
     return (sx, sy)
 
-def _planet_label(code: str) -> str:
-    return HN_ABBR.get(code, code)
+def _planet_label_with_markers(code: str, lon: float, sidelons: dict) -> str:
+    base = HN_ABBR.get(code, code)
+    try:
+        flags = _calculate_planet_status(code, lon, sidelons, chart_type='D1')
+    except Exception:
+        flags = {'exalt': False, 'debil': False, 'comb': False, 'varg': False}
+    disp = base
+    if flags.get('exalt'): disp += UP_ARROW
+    if flags.get('debil'): disp += DOWN_ARROW
+    if flags.get('comb'):  disp += COMBUST
+    if flags.get('varg'):  disp += VARG_SQ
+    return disp
+
 
 def render_kundali_chalit(
     size_pt: float,
@@ -166,7 +178,7 @@ def render_kundali_chalit(
                 effective_xy = chalit_xy
 
         placements.append(dict(
-            code=code, label=_planet_label(code),
+            code=code, label=_planet_label_with_markers(code, lon, sidelons),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
             disp_xy=disp_xy, eff_xy=effective_xy,
             shift=shift_arrow
@@ -241,11 +253,23 @@ def render_kundali_chalit(
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
+            dx = ex - sx; dy = ey - sy
+            norm = (dx*dx + dy*dy) ** 0.5 or 1.0
+            nx = dx / norm; ny = dy / norm
+            # start gap + constant very-short arrow
+            sx2 = sx + nx*ARROW_START_GAP
+            sy2 = sy + ny*ARROW_START_GAP
+            ex2 = sx2 + nx*ARROW_LEN_PX
+            ey2 = sy2 + ny*ARROW_LEN_PX
+            # degree label above arrow (perpendicular offset)
+            mx = (sx2 + ex2)/2.0; my = (sy2 + ey2)/2.0
+            lx = mx - ny*ARROW_LABEL_OFFSET
+            ly = my + nx*ARROW_LABEL_OFFSET
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 8}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{lx - 9}pt;top:{ly - 10}pt;width:18pt;height:12pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
