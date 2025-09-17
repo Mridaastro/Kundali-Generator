@@ -11,19 +11,6 @@ from docx.oxml import parse_xml
 
 HN_ABBR = {'Su': 'सू', 'Mo': 'चं', 'Ma': 'मं', 'Me': 'बु', 'Ju': 'गु', 'Ve': 'शु', 'Sa': 'श', 'Ra': 'रा', 'Ke': 'के'}
 
-
-def _safe_get_label(code, planet_labels):
-    base = HN_ABBR.get(code, code)
-    if isinstance(planet_labels, dict) and code in planet_labels and planet_labels[code]:
-        return str(planet_labels[code])
-    return base
-
-def _flag(flags, code, key):
-    try:
-        return bool(flags.get(code, {}).get(key, False))
-    except Exception:
-        return False
-
 def _n360(x: float) -> float:
     x = fmod(x, 360.0)
     return x if x >= 0 else x + 360.0
@@ -88,164 +75,17 @@ def _poly_centroid(poly):
         xs,ys = zip(*poly); return (sum(xs)/n, sum(ys)/n)
     return (Cx/(6*A), Cy/(6*A))
 
-def _inset_toward_centroid(point, house_poly, inset_pt: float):
-    """Move 'point' by 'inset_pt' toward polygon centroid (staying inside)."""
-    cx, cy = _poly_centroid(house_poly)
-    sx, sy = point
-    dx, dy = (cx - sx), (cy - sy)
-    d = (dx*dx + dy*dy) ** 0.5 or 1.0
-    ux, uy = dx / d, dy / d
-    return (sx + ux * inset_pt, sy + uy * inset_pt)
-
-
-
-def _bbox(cx, cy, w, h):
-    return (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0)
-
-def _rects_overlap(a, b):
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    return not (ax2 <= bx1 or bx2 <= ax1 or ay2 <= by1 or by2 <= ay1)
-def _baseline_for_house(poly, S: float, house_num: int, start_anchor, end_anchor):
-    """Compute baseline oriented from start_anchor toward end_anchor direction.
-    Creates deterministic baseline where p1 aligns with start cusp direction 
-    and p2 aligns with end cusp direction."""
+def _baseline_for_house(poly, S: float):
     cx, cy = _poly_centroid(poly)
     pad = max(6.0, S*0.035)
     w = max(28.0, S*0.18)
-    
-    start_x, start_y = start_anchor
-    end_x, end_y = end_anchor
-    
-    # For houses with same start/end cusp (H3,H6,H9,H12), create horizontal baseline
-    if abs(start_x - end_x) < 1e-6 and abs(start_y - end_y) < 1e-6:
-        # Single point cusp - create horizontal baseline centered at centroid
-        half_w = w / 2
-        x1 = max(pad, min(cx - half_w, S - pad))
-        y1 = max(pad, min(cy, S - pad))
-        x2 = max(pad, min(cx + half_w, S - pad))
-        y2 = y1
-        return (x1, y1), (x2, y2)
-    
-    # Calculate baseline direction vector from start to end cusp
-    dx = end_x - start_x
-    dy = end_y - start_y
-    length = max(1e-9, (dx*dx + dy*dy)**0.5)
-    dx_norm = dx / length
-    dy_norm = dy / length
-    
-    # Create baseline parallel to cusp direction (not perpendicular)
-    # This ensures p1→p2 follows start_anchor→end_anchor direction
-    half_w = w / 2
-    
-    # Position baseline points along the cusp direction
-    # p1 is positioned toward start_anchor direction
-    # p2 is positioned toward end_anchor direction
-    x1 = cx - dx_norm * half_w
-    y1 = cy - dy_norm * half_w
-    x2 = cx + dx_norm * half_w
-    y2 = cy + dy_norm * half_w
-    
-    # Apply bounds checking
-    x1 = max(pad, min(x1, S - pad))
-    y1 = max(pad, min(y1, S - pad))
-    x2 = max(pad, min(x2, S - pad))
-    y2 = max(pad, min(y2, S - pad))
-    
-    return (x1, y1), (x2, y2)
+    x1 = max(pad, min(cx - w/2, S - pad - w))
+    x2 = x1 + w
+    y  = max(pad, min(cy + S*0.05, S - pad))
+    return (x1, y), (x2, y)
 
 def _interpolate(p1, p2, t: float):
     return (p1[0] + (p2[0]-p1[0])*t, p1[1] + (p2[1]-p1[1])*t)
-
-def _get_cusp_corners_for_house(house_num: int, S: float):
-    """Get the corner points that represent cusps for a given house.
-    Returns (start_corner, end_corner) corresponding to BhavBegin and BhavEnd.
-    
-    Triangular houses use outer midpoints as cusps.
-    Quad houses use inner corners as cusps.
-    """
-    TM = (S/2, 0); RM = (S, S/2); BM = (S/2, S); LM = (0, S/2)
-    O  = (S/2, S/2)
-    P_lt = (S/4, S/4); P_rt = (3*S/4, S/4); P_rb = (3*S/4, 3*S/4); P_lb = (S/4, 3*S/4)
-    
-    # Corrected cusp corners for proper triangular/quad house mapping:
-    # Triangular houses (2,3,5,6,8,9,11,12) use outer midpoints
-    # Quad houses (1,4,7,10) use inner corners
-    cusp_mapping = {
-        1:  (P_lt, P_rt),     # Quad house 1: left inner to right inner
-        2:  (TM, LM),         # Triangular house 2: top middle to left middle
-        3:  (LM, LM),         # Triangular house 3: left middle (single point cusp)
-        4:  (P_lb, P_lt),     # Quad house 4: left bottom inner to left top inner
-        5:  (LM, BM),         # Triangular house 5: left middle to bottom middle
-        6:  (BM, BM),         # Triangular house 6: bottom middle (single point cusp)
-        7:  (P_rb, P_lb),     # Quad house 7: right bottom inner to left bottom inner
-        8:  (BM, RM),         # Triangular house 8: bottom middle to right middle
-        9:  (RM, RM),         # Triangular house 9: right middle (single point cusp)
-        10: (P_rt, P_rb),     # Quad house 10: right top inner to right bottom inner
-        11: (RM, TM),         # Triangular house 11: right middle to top middle
-        12: (TM, TM),         # Triangular house 12: top middle (single point cusp)
-    }
-    
-    start_corner, end_corner = cusp_mapping.get(house_num, (P_lt, P_rt))
-    return start_corner, end_corner
-
-def _compute_cusp_anchors(poly, S: float, house_num: int):
-    """Compute start and end cusp anchor points for a house polygon.
-    Uses proper geometric cusp mapping instead of heuristics."""
-    start_corner, end_corner = _get_cusp_corners_for_house(house_num, S)
-    
-    # Apply padding to ensure anchors are within bounds
-    pad = max(4.0, S*0.02)
-    start_anchor = (max(pad, min(start_corner[0], S-pad)), max(pad, min(start_corner[1], S-pad)))
-    end_anchor = (max(pad, min(end_corner[0], S-pad)), max(pad, min(end_corner[1], S-pad)))
-    
-    return start_anchor, end_anchor
-
-def _apply_cusp_positioning(baseline_xy, t: float, mid_t: float, cusp_anchors, 
-                           start_deg: float, end_deg: float, planet_deg: float,
-                           cusp_snap_deg: float, cusp_bias_deg: float):
-    """Apply cusp snapping and mid-split positioning logic."""
-    start_anchor, end_anchor = cusp_anchors
-    
-    # Calculate proximity to start and end cusps
-    start_proximity = abs(_fwd_arc(start_deg, planet_deg))
-    if start_proximity > 180:
-        start_proximity = 360 - start_proximity
-    
-    end_proximity = abs(_fwd_arc(planet_deg, end_deg))
-    if end_proximity > 180:
-        end_proximity = 360 - end_proximity
-    
-    # Determine if we should snap to cusp
-    if start_proximity <= cusp_snap_deg:
-        return start_anchor
-    elif end_proximity <= cusp_snap_deg:
-        return end_anchor
-    
-    # Apply mid-split strictness - ensure placement in correct half
-    if t < mid_t:
-        # First half: start to mid
-        # Adjust t to be relative to first half
-        adjusted_t = t / mid_t if mid_t > 0 else 0
-        mid_baseline = _interpolate(baseline_xy[0], _interpolate(baseline_xy[0], baseline_xy[1], mid_t), adjusted_t)
-    else:
-        # Second half: mid to end
-        # Adjust t to be relative to second half
-        adjusted_t = (t - mid_t) / (1 - mid_t) if mid_t < 1 else 0
-        mid_point = _interpolate(baseline_xy[0], baseline_xy[1], mid_t)
-        mid_baseline = _interpolate(mid_point, baseline_xy[1], adjusted_t)
-    
-    # Apply cusp bias if within bias range
-    if start_proximity <= cusp_bias_deg:
-        bias_factor = 1 - (start_proximity / cusp_bias_deg)
-        bias_factor = bias_factor ** 2  # Quadratic bias
-        return _interpolate(mid_baseline, start_anchor, bias_factor)
-    elif end_proximity <= cusp_bias_deg:
-        bias_factor = 1 - (end_proximity / cusp_bias_deg)
-        bias_factor = bias_factor ** 2  # Quadratic bias
-        return _interpolate(mid_baseline, end_anchor, bias_factor)
-    
-    return mid_baseline
 
 def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
     poly = houses[h_rasi]
@@ -263,73 +103,24 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
 def _planet_label(code: str) -> str:
     return HN_ABBR.get(code, code)
 
-MID_SNAP_FRAC = 0.05  # ±5% band around mid-bhava treated as 'mid'
-
 def render_kundali_chalit(
     size_pt: float,
     lagna_sign: int,
     sidelons: Dict[str, float],     # Su,Mo,Ma,Me,Ju,Ve,Sa,Ra,Ke in degrees 0..360 (sidereal)
     begins_sid: List[float],         # 1-based BhavBegin sidereal (index 1..12)
     mids_sid: List[float],           # 1-based Bhava Madhya sidereal (index 1..12)
-    pair_threshold_deg: float = 6.0,
-    color: str = "#FF6600",          # User-selected color for theming
-    cusp_snap_deg: float = 0.5,      # Snap to corner/cusp if within this many degrees
-    cusp_bias_deg: float = 2.0       # Bias toward corner/cusp if within this many degrees
-, planet_labels=None, planet_flags=None, shift_arrow_scale: float = 0.3333, shift_label_offset_pt: float = 8.0):
-    """Return a VML group (XML element) to append to a python-docx cell."""
+    pair_threshold_deg: float = 6.0
+):
+    \"\"\"Return a VML group (XML element) to append to a python-docx cell.\"\"\"
     S = float(size_pt)
     houses = _house_polys(S)
-    
-    # Generate color variants for theming
-    def hex_to_rgb(hex_color):
-        hex_color = hex_color.lstrip('#')
-        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-    
-    def rgb_to_hex(rgb):
-        return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]), int(rgb[1]), int(rgb[2]))
-    
-    def lighten_color(hex_color, factor=0.7):
-        r, g, b = hex_to_rgb(hex_color)
-        r = int(r + (255 - r) * factor)
-        g = int(g + (255 - g) * factor)
-        b = int(b + (255 - b) * factor)
-        return rgb_to_hex((r, g, b))
-    
-    def darken_color(hex_color, factor=0.3):
-        r, g, b = hex_to_rgb(hex_color)
-        r = int(r * (1 - factor))
-        g = int(g * (1 - factor))
-        b = int(b * (1 - factor))
-        return rgb_to_hex((r, g, b))
-    
-    # Create color variants for different elements - make borders much darker
-    stroke_color = darken_color(color, 0.6)  # Much darker variant for borders
-    fill_color = lighten_color(color, 0.7)   # Light variant for fill
 
     baselines = {}
     mids_xy   = {}
-    cusp_anchors = {}
-    mid_fractions = {}
     for h in range(1,13):
-        # Compute cusp anchors first to get proper start/end positions
-        cusp_anchors[h] = _compute_cusp_anchors(houses[h], S, h)
-        start_anchor, end_anchor = cusp_anchors[h]
-        
-        # Create baseline oriented with cusp direction
-        p1, p2 = _baseline_for_house(houses[h], S, h, start_anchor, end_anchor)
+        p1, p2 = _baseline_for_house(houses[h], S)
         baselines[h] = (p1, p2)
         mids_xy[h]   = _interpolate(p1, p2, 0.5)
-        
-        # Calculate mid fraction for this house
-        start = begins_sid[h]
-        end = begins_sid[1] if h == 12 else begins_sid[h+1]
-        mid = mids_sid[h]
-        mid_fraction = _arc_fraction(start, end, mid)
-        
-        # Baseline orientation is now deterministic from _baseline_for_house()
-        # No need for swap logic since p1→p2 direction is aligned with start→end cusp direction
-        
-        mid_fractions[h] = mid_fraction
 
     placements = []
     order = ['Su','Mo','Ma','Me','Ju','Ve','Sa','Ra','Ke']
@@ -344,12 +135,7 @@ def render_kundali_chalit(
         t     = _arc_fraction(start, end, lon)
 
         p1, p2 = baselines[h_c]
-        # Apply enhanced cusp positioning with mid-split logic
-        chalit_xy = _apply_cusp_positioning(
-            (p1, p2), t, mid_fractions[h_c], cusp_anchors[h_c],
-            start, end, lon, cusp_snap_deg, cusp_bias_deg
-        )
-        print(f"DEBUG: Planet {code} - rasi_house={h_r}, chalit_house={h_c}, lon={lon:.1f}, position=({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
+        chalit_xy = _interpolate(p1, p2, t)
 
         disp_xy = chalit_xy
         effective_xy = chalit_xy
@@ -360,50 +146,19 @@ def render_kundali_chalit(
                 boundary = begins_sid[(h_r % 12) + 1]
                 extra = _fwd_arc(boundary, lon)
                 degs  = _deg_only(extra)
-                # Use enhanced cusp positioning for the arrow start position as well
-                start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
-                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.8)  # Near end of previous house
-                
-                # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(12.0, S*0.03)
-                disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
-                # Also start the arrow from the inset point so it does not start under the glyph
-                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
-                effective_xy = chalit_xy  # Enhanced position in destination house
-                print(f"DEBUG: Forward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
-            elif h_c == (h_r - 2) % 12 + 1:  # backward shift  
+                start_xy = _border_anchor_for_shift(houses, h_r, forward=True, S=S)
+                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f\"{degs}°\")
+                disp_xy = start_xy
+                effective_xy = chalit_xy
+            elif h_c == (h_r - 2) % 12 + 1:  # backward shift
                 boundary = begins_sid[h_r]
                 extra = _fwd_arc(lon, boundary)
                 degs  = _deg_only(extra)
-                # Use enhanced cusp positioning for the arrow start position as well
-                start_anchor_h_r, end_anchor_h_r = cusp_anchors[h_r]
-                start_xy = _interpolate(start_anchor_h_r, end_anchor_h_r, 0.2)  # Near start of previous house
-                
-                # Inset the planet inside its rāśi house so it does not sit on/over the border
-                inset = max(12.0, S*0.03)
-                disp_xy = _inset_toward_centroid(start_xy, houses[h_r], inset)
-                # Also start the arrow from the inset point so it does not start under the glyph
-                shift_arrow = dict(start=disp_xy, end=chalit_xy, label=f"{degs}°")  # Keep arrow start at border
-                effective_xy = chalit_xy  # Enhanced position in destination house
-                print(f"DEBUG: Backward shift {code} from house {h_r} to {h_c}, arrow: ({start_xy[0]:.1f},{start_xy[1]:.1f}) -> ({chalit_xy[0]:.1f},{chalit_xy[1]:.1f})")
+                start_xy = _border_anchor_for_shift(houses, h_r, forward=False, S=S)
+                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f\"{degs}°\")
+                disp_xy = start_xy
+                effective_xy = chalit_xy
 
-
-        # --- Mid-bhava placement + center-overlap fix ---
-        try:
-            mid_t = mid_fractions[h_c]
-        except Exception:
-            mid_t = 0.5
-        num_w, num_h = 10, 12    # house number box size (see draw section)
-        mark_w, mark_h = 16, 12  # planet label size (see draw section)
-        cx, cy = _poly_centroid(houses[h_c])
-        gap = max(2.0, mark_h * 0.25)
-        overlap_with_center = _rects_overlap(_bbox(chalit_xy[0], chalit_xy[1], mark_w, mark_h),
-                                             _bbox(cx, cy, num_w, num_h))
-        if abs(t - mid_t) <= MID_SNAP_FRAC or overlap_with_center:
-            disp_xy = (cx, cy + (num_h/2.0 + gap + mark_h/2.0))
-        else:
-            disp_xy = chalit_xy
-        effective_xy = chalit_xy
         placements.append(dict(
             code=code, label=_planet_label(code),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
@@ -426,18 +181,18 @@ def render_kundali_chalit(
             if sep_deg <= pair_threshold_deg + 1e-9:
                 pair_arrows.append(dict(
                     start=A['eff_xy'], end=B['eff_xy'],
-                    label=f"{_deg_only(sep_deg)}°"
+                    label=f\"{_deg_only(sep_deg)}°\"
                 ))
 
     # Compose VML (frame + diagonals + baselines + planets + arrows)
     frame = f'''
-      <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{stroke_color}" strokeweight="4pt" fillcolor="{fill_color}"/>
-      <v:line style="position:absolute;z-index:2" from="0,0" to="{S},{S}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S},0" to="0,{S}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S/2},0" to="{S},{S/2}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S},{S/2}" to="{S/2},{S}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="{S/2},{S}" to="0,{S/2}" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
-      <v:line style="position:absolute;z-index:2" from="0,{S/2}" to="{S/2},0" strokecolor="{stroke_color}" strokeweight="2.5pt"/>
+      <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="#CC6600" strokeweight="3pt" fillcolor="#ffdcc8"/>
+      <v:line style="position:absolute;z-index:2" from="0,0" to="{S},{S}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S},0" to="0,{S}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S/2},0" to="{S},{S/2}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S},{S/2}" to="{S/2},{S}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+      <v:line style="position:absolute;z-index:2" from="{S/2},{S}" to="0,{S/2}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+      <v:line style="position:absolute;z-index:2" from="0,{S/2}" to="{S/2},0" strokecolor="#CC6600" strokeweight="1.25pt"/>
     '''
 
     shapes = [frame]
@@ -459,8 +214,10 @@ def render_kundali_chalit(
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{labels[h]}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
         </v:rect>''')
-        # baseline removed per requirement
-        # mid tick removed as per requirement
+        (x1,y),(x2,_) = baselines[h]
+        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{x1},{y}" to="{x2},{y}" strokecolor="#000000" strokeweight="0.75pt"/>')
+        mx,my = _interpolate((x1,y),(x2,y),0.5)
+        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{mx},{y-3}" to="{mx},{y+3}" strokecolor="#000000" strokeweight="0.5pt"/>')
 
     # Planet markers + shift arrows
     mark_w, mark_h = 16, 12
@@ -468,39 +225,19 @@ def render_kundali_chalit(
         x, y = p['disp_xy']
         left = x - mark_w/2; top = y - mark_h/2
         shapes.append(f'''
-        <v:rect style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="none" fillcolor="#ffffff" strokeweight="0.75pt">
+        <v:roundrect arcsize="0.3" style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="black" fillcolor="#ffffff" strokeweight="0.75pt">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{_safe_get_label(p['code'], planet_labels)}</w:t></w:r></w:p>
+            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{p['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
-        </v:rect>''')
-        # overlays
-        if planet_flags:
-            is_self = _flag(planet_flags, p['code'], 'self')
-            is_varg = _flag(planet_flags, p['code'], 'vargottama')
-            if is_self:
-                cx_o = left + mark_w - 4; cy_o = top + mark_h - 4
-                shapes.append(f'''<v:oval style="position:absolute;left:{cx_o-2}pt;top:{cy_o-2}pt;width:4pt;height:4pt;z-index:8" fillcolor="#000000" strokecolor="none"/>''')
-            if is_varg:
-                badge_w, badge_h = 6, 6
-                bx = left + mark_w - badge_w + 0.5; by = top - badge_h/2
-                shapes.append(f'''<v:rect style="position:absolute;left:{bx}pt;top:{by}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8" fillcolor="#ffffff" strokecolor="#666666" strokeweight="0.5pt"/>''')
+        </v:roundrect>''')
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
-            # move arrow start away from planet so label is not obscured
-            dx, dy = (ex - sx), (ey - sy)
-            d = (dx*dx + dy*dy) ** 0.5 or 1.0
-            ux, uy = dx/d, dy/d
-            gap = max(6.0, mark_h * 0.65)
-            sx2, sy2 = sx + ux*gap, sy + uy*gap
-            # shorten arrow from the offset start (~1/3 of remaining length)
-            ex2 = sx2 + (ex - sx2) * shift_arrow_scale
-            ey2 = sy2 + (ey - sy2) * shift_arrow_scale
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx2+ex2)/2 - 8}pt;top:{(sy2+ey2)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 8}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
@@ -513,7 +250,7 @@ def render_kundali_chalit(
         <v:line style="position:absolute;z-index:9" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#7a2e2e" strokeweight="1pt">
           <v:stroke endarrow="classic" startarrow="classic"/>
         </v:line>
-        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 + shift_label_offset_pt}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
+        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 10}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{ar['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
