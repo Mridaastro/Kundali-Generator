@@ -117,7 +117,7 @@ def render_kundali_chalit(
     mids_sid: List[float],           # 1-based Bhava Madhya sidereal (index 1..12)
     pair_threshold_deg: float = 6.0
 ):
-    \"\"\"Return a VML group (XML element) to append to a python-docx cell.\"\"\"
+    """Return a VML group (XML element) to append to a python-docx cell."""
     S = float(size_pt)
     houses = _house_polys(S)
 
@@ -153,7 +153,7 @@ def render_kundali_chalit(
                 extra = _fwd_arc(boundary, lon)
                 degs  = _deg_only(extra)
                 start_xy = _border_anchor_for_shift(houses, h_r, forward=True, S=S)
-                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f\"{degs}°\")
+                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
                 disp_xy = start_xy
                 effective_xy = chalit_xy
             elif h_c == (h_r - 2) % 12 + 1:  # backward shift
@@ -161,7 +161,7 @@ def render_kundali_chalit(
                 extra = _fwd_arc(lon, boundary)
                 degs  = _deg_only(extra)
                 start_xy = _border_anchor_for_shift(houses, h_r, forward=False, S=S)
-                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f\"{degs}°\")
+                shift_arrow = dict(start=start_xy, end=chalit_xy, label=f"{degs}°")
                 disp_xy = start_xy
                 effective_xy = chalit_xy
 
@@ -187,7 +187,7 @@ def render_kundali_chalit(
             if sep_deg <= pair_threshold_deg + 1e-9:
                 pair_arrows.append(dict(
                     start=A['eff_xy'], end=B['eff_xy'],
-                    label=f\"{_deg_only(sep_deg)}°\"
+                    label=f"{_deg_only(sep_deg)}°"
                 ))
 
     # Compose VML (frame + diagonals + baselines + planets + arrows)
