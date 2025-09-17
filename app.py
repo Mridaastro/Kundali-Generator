@@ -4,6 +4,7 @@
 
 APP_TITLE = "MRIDAASTRO"
 APP_TAGLINE = "In the light of divine, let your soul journey shine"
+from chalit_kundali_vml import render_kundali_chalit
 
 def decimal_to_dms(decimal_deg, is_latitude=True):
     """
@@ -4289,12 +4290,8 @@ if can_generate:
         # Lagna chart with planets in single box per house
         rasi_house_planets = build_chalit_house_planets_marked(
             sidelons, begins_sid)
-        hdr_p._p.addnext(
-            kundali_with_planets(size_pt=CHART_W_PT,
-                                 lagna_sign=lagna_sign,
-                                 house_planets=rasi_house_planets))
-
-        # Original Navamsa chart title - Enhanced styling for visibility
+        hdr_p._p.addnext(render_kundali_chalit(size_pt=CHART_W_PT, lagna_sign=lagna_sign, sidelons=sidelons, begins_sid=begins_sid, mids_sid=mids_sid))
+# Original Navamsa chart title - Enhanced styling for visibility
         cell2 = kt.rows[1].cells[0]
         sp_nav = cell2.add_paragraph()
         sp_nav.paragraph_format.space_before = Pt(40)
