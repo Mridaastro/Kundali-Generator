@@ -110,59 +110,13 @@ from docx.shared import RGBColor
 TEMPLATE_DOCX = "bg_template.docx"
 
 
-def make_document(template_file=None):
-    """Create a new Word document using the specified template or default."""
-    if not template_file:
-        template_file = TEMPLATE_DOCX
-    
+def make_document():
     try:
-        # Check in assets folder first, then current directory
-        template_path = f"assets/{template_file}" if os.path.exists(f"assets/{template_file}") else template_file
-        if os.path.exists(template_path):
-            return _WordDocument(template_path)
+        if os.path.exists(TEMPLATE_DOCX):
+            return _WordDocument(TEMPLATE_DOCX)
     except Exception:
         pass
     return _WordDocument()
-
-def hex_to_rgb_hex(hex_color):
-    """Convert #FF6600 format to RGB hex without # for Word XML."""
-    return hex_color.lstrip('#').upper()
-
-def hex_to_rgb(hex_color):
-    """Convert hex color to RGB tuple"""
-    hex_color = hex_color.lstrip('#')
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
-def rgb_to_hex(rgb):
-    """Convert RGB tuple to hex color"""
-    return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]), int(rgb[1]), int(rgb[2]))
-
-def lighten_color(hex_color, factor=0.7):
-    """Make a color lighter by mixing with white"""
-    r, g, b = hex_to_rgb(hex_color)
-    r = int(r + (255 - r) * factor)
-    g = int(g + (255 - g) * factor)
-    b = int(b + (255 - b) * factor)
-    return rgb_to_hex((r, g, b))
-
-def darken_color(hex_color, factor=0.3):
-    """Make a color darker by reducing brightness"""
-    r, g, b = hex_to_rgb(hex_color)
-    r = int(r * (1 - factor))
-    g = int(g * (1 - factor))
-    b = int(b * (1 - factor))
-    return rgb_to_hex((r, g, b))
-
-def get_color_variants(base_color):
-    """Get all color variants needed for comprehensive theming"""
-    return {
-        'base': hex_to_rgb_hex(base_color),
-        'light': hex_to_rgb_hex(lighten_color(base_color, 0.7)),  # Very light for odd rows, kundali background
-        'dark': hex_to_rgb_hex(darken_color(base_color, 0.3)),    # Dark for borders/headers
-        'medium': hex_to_rgb_hex(lighten_color(base_color, 0.4))  # Medium for section bars
-    }
-
-# apply_color_scheme function removed - VML color theming now handled at runtime during generation
 
 
 # ===== End Background Template Helper =====
@@ -175,7 +129,6 @@ def get_color_variants(base_color):
 # - Fix kundali preview image whitespace: compact square PNG with zero padding
 
 import math
-from chalit_kundali_vml import render_kundali_chalit
 import datetime, json, urllib.parse, urllib.request
 from io import BytesIO
 
@@ -211,43 +164,11 @@ CHART_COLORS = {
 
 # --- Reliable cell shading (works in all Word views) ---
 def shade_cell(cell, fill_hex="FFFFFF"):
-    """Apply background color to a table cell using VML shading"""
-    try:
-        # Get cell properties or create them
-        tc = cell._element
-        tcPr = tc.find(qn('w:tcPr'))
-        if tcPr is None:
-            tcPr = OxmlElement('w:tcPr')
-            tc.insert(0, tcPr)
-            
-        # Remove existing shading if present
-        for shd in tcPr.findall(qn('w:shd')):
-            tcPr.remove(shd)
-            
-        # Add new shading
-        shd = OxmlElement('w:shd')
-        shd.set(qn('w:val'), 'clear')
-        shd.set(qn('w:color'), 'auto')
-        shd.set(qn('w:fill'), fill_hex.lstrip('#'))
-        tcPr.append(shd)
-        
-    except Exception:
-        pass  # Fail silently to avoid breaking document generation
+    return
 
 
 def shade_header_row(table, fill_hex="FFFFFF"):
-    """Apply background color to the header row with dark variant"""
-    try:
-        header_row = table.rows[0]
-        for cell in header_row.cells:
-            shade_cell(cell, fill_hex)
-            # Also make header text bold and white for better contrast
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.bold = True
-                    run.font.color.rgb = RGBColor(255, 255, 255)
-    except Exception:
-        pass  # Fail silently
+    return
 
 
 def compact_document_spacing(doc):
@@ -317,7 +238,7 @@ def zero_table_cell_margins(table):
 
 def add_phalit_section(container_cell, width_inches=3.60, rows=25):
     # Add beautiful cylindrical gradient header bar for फलित section
-    create_cylindrical_section_header(container_cell, "फलित", width_pt=260, primary_color="#FFD700", gradient_color=user_color, yellow_gradient=True)
+    create_cylindrical_section_header(container_cell, "फलित", width_pt=260)
 
     t = container_cell.add_table(rows=rows, cols=1)
     t.autofit = False
@@ -354,9 +275,7 @@ def add_phalit_section(container_cell, width_inches=3.60, rows=25):
         el.set(qn('w:val'), 'single')
         el.set(qn('w:sz'), '8')
         el.set(qn('w:space'), '0')
-        # Use user_color dark variant instead of hardcoded orange
-        dark_color = hex_to_rgb_hex(darken_color(user_color, 0.3))
-        el.set(qn('w:color'), dark_color)
+        el.set(qn('w:color'), 'E67E22')
         tcBorders.append(el)
         tcPr.append(tcBorders)
 
@@ -396,15 +315,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytz
 import streamlit as st
-
-# --- UI CSS: bold expander header ---
-st.markdown("""
-<style>
-[data-testid="stExpander"] > summary { font-weight: 700 !important; }
-</style>
-""", unsafe_allow_html=True)
-# --- end UI CSS ---
-
 # === App background helper (for authenticated pages) ===
 import base64, os, streamlit as st
 
@@ -739,43 +649,11 @@ def set_cell_margins(cell, *, left=None, right=None, top=None, bottom=None):
 
 # --- Table header shading helper (match kundali bg) ---
 def shade_cell(cell, fill_hex="FFFFFF"):
-    """Apply background color to a table cell using VML shading"""
-    try:
-        # Get cell properties or create them
-        tc = cell._element
-        tcPr = tc.find(qn('w:tcPr'))
-        if tcPr is None:
-            tcPr = OxmlElement('w:tcPr')
-            tc.insert(0, tcPr)
-            
-        # Remove existing shading if present
-        for shd in tcPr.findall(qn('w:shd')):
-            tcPr.remove(shd)
-            
-        # Add new shading
-        shd = OxmlElement('w:shd')
-        shd.set(qn('w:val'), 'clear')
-        shd.set(qn('w:color'), 'auto')
-        shd.set(qn('w:fill'), fill_hex.lstrip('#'))
-        tcPr.append(shd)
-        
-    except Exception:
-        pass  # Fail silently to avoid breaking document generation
+    return
 
 
 def shade_header_row(table, fill_hex="FFFFFF"):
-    """Apply background color to the header row with dark variant"""
-    try:
-        header_row = table.rows[0]
-        for cell in header_row.cells:
-            shade_cell(cell, fill_hex)
-            # Also make header text bold and white for better contrast
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.bold = True
-                    run.font.color.rgb = RGBColor(255, 255, 255)
-    except Exception:
-        pass  # Fail silently
+    return
 
 
 def set_page_background(doc, hex_color):
@@ -1293,12 +1171,11 @@ def geocode(place, api_key):
         try:
             base = "https://api.geoapify.com/v1/geocode/search?"
             
-            # Prepare query parameters - increased limit for villages and rural areas
+            # Prepare query parameters with Sihora-specific filters
             query_params = {
                 "text": search_term,
                 "format": "json",
-                "limit": 10,  # Increased limit to find villages
-                "type": "locality",  # Include villages, towns, cities
+                "limit": 3,
                 "apiKey": api_key
             }
             
@@ -1354,13 +1231,11 @@ def geocode(place, api_key):
         print(f"DEBUG: Using fallback coordinates for Sihora, Jabalpur (no API match)")
         return 23.4866, 80.1066, "Sihora, Jabalpur, Madhya Pradesh, India"
 
-    # Try to find the best match among all results - prioritize villages too
+    # Try to find the best match among all results
     best_result = None
     for res in all_results:
-        # Include more location types to capture villages and rural areas
-        city_res = (res.get("city") or res.get("town") or res.get("village") or 
-                   res.get("municipality") or res.get("hamlet") or res.get("locality") or 
-                   res.get("neighbourhood") or res.get("county") or "")
+        city_res = res.get("city") or res.get("town") or res.get(
+            "village") or res.get("municipality") or res.get("county") or ""
         state_res = res.get("state") or ""
         country_res = res.get("country") or ""
         
@@ -1533,7 +1408,7 @@ def sidereal_positions(dt_utc):
                     ('Ve', swe.VENUS), ('Sa', swe.SATURN)]:
         xx, _ = swe.calc_ut(jd, p, flags)
         out[code] = xx[0] % 360.0
-    xx, _ = swe.calc_ut(jd, swe.TRUE_NODE, flags)  # True node (default)
+    xx, _ = swe.calc_ut(jd, swe.MEAN_NODE, flags)  # Mean node locked
     out['Ra'] = xx[0] % 360.0
     out['Ke'] = (out['Ra'] + 180.0) % 360.0
     ay = swe.get_ayanamsa_ut(jd)
@@ -1550,8 +1425,7 @@ def ascendant_sign(jd, lat, lon, ay):
 def navamsa_sign_from_lon_sid(lon_sid):
     sign = int(lon_sid // 30) + 1
     deg_in_sign = lon_sid % 30.0
-    # use half-open slices with tiny epsilon to avoid boundary flips
-    pada = int(((deg_in_sign + 1e-9) // (30.0 / 9.0)))
+    pada = int(deg_in_sign // (30.0 / 9.0))
     if sign in (1, 4, 7, 10): start = sign
     elif sign in (2, 5, 8, 11): start = ((sign + 8 - 1) % 12) + 1
     else: start = ((sign + 4 - 1) % 12) + 1
@@ -1702,7 +1576,6 @@ def build_chalit_house_planets_marked(sidelons, begins_sid):
     """
     Build house->planet labels using Chalit houses from 'begins_sid'.
     Flags (exalt/own/combust/vargottama) are preserved by reusing compute_statuses_all.
-    Now includes longitude data for precise positioning.
     """
     house_map = {i: [] for i in range(1, 13)}
     stats = compute_statuses_all(sidelons)
@@ -1710,11 +1583,7 @@ def build_chalit_house_planets_marked(sidelons, begins_sid):
         h = chalit_house_index_of_lon(sidelons[code], begins_sid)
         fl = _make_flags('rasi', stats[code])
         label = fmt_planet_label(code, fl)
-        house_map[h].append({
-            'txt': label, 
-            'flags': fl,
-            'lon': sidelons[code]  # Include longitude for precise positioning
-        })
+        house_map[h].append({'txt': label, 'flags': fl})
     return house_map
 
 
@@ -1818,53 +1687,8 @@ def rotated_house_labels(lagna_sign):
     }
 
 
+def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None):
 
-def angle_between(start, angle, end):
-    """Check if angle is between start and end, handling 0/360 wrap-around."""
-    start, end, angle = start % 360, end % 360, angle % 360
-    if start <= end:
-        return start <= angle <= end
-    else:  # Crosses 0/360 boundary
-        return angle >= start or angle <= end
-
-def angle_ratio(start, angle, end):
-    """Calculate ratio (0.0 to 1.0) of where angle falls between start and end."""
-    start, end, angle = start % 360, end % 360, angle % 360
-    if start <= end:
-        if end - start == 0:
-            return 0.5  # Avoid division by zero
-        return (angle - start) / (end - start)
-    else:  # Crosses 0/360 boundary
-        total_range = (360 - start) + end
-        if total_range == 0:
-            return 0.5
-        if angle >= start:
-            return (angle - start) / total_range
-        else:
-            return ((360 - start) + angle) / total_range
-
-def detect_conjunctions_in_house(planets, max_degrees=6.0):
-    """Detect conjunctions between planets in the same house."""
-    conjunctions = []
-    for i in range(len(planets)):
-        for j in range(i + 1, len(planets)):
-            p1, p2 = planets[i], planets[j]
-            if (isinstance(p1, dict) and 'lon' in p1 and 
-                isinstance(p2, dict) and 'lon' in p2):
-                lon1, lon2 = p1['lon'] % 360, p2['lon'] % 360
-                sep = min(abs(lon1 - lon2), 360 - abs(lon1 - lon2))
-                if sep <= max_degrees:
-                    conjunctions.append({
-                        'planet1_idx': i,
-                        'planet2_idx': j, 
-                        'separation_degrees': int(round(sep))
-                    })
-    return conjunctions
-
-def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_sid=None, mids_sid=None, color="#FF6600"):
-    # Use light version of color for kundali charts for softer appearance
-    light_color = lighten_color(color, 0.7) if color != "#FF6600" else color
-    
     # robust default for size_pt so definition never depends on globals
     if size_pt is None:
         try:
@@ -1963,12 +1787,10 @@ def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_
           </v:textbox>
         </v:rect>
         ''')
-        # planet positioning - use precise coordinates if Chalit data available
+        # planet row below number
         planets = house_planets.get(int(k), [])
         if planets:
             n = len(planets)
-            
-            # Use original grid layout (precise positioning is handled in kundali_markers_lib.py)
             max_cols = 2  # wrap after this many per row
             rows = (n + max_cols - 1) // max_cols
             gap_y = 2
@@ -1984,8 +1806,6 @@ def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_
                 else:
                     label = str(pl).strip() or '?'
                     fl = {}
-                
-                # Use original grid layout (precise positioning handled in kundali_markers_lib.py)
                 r = idx // max_cols
                 c = idx % max_cols
                 # columns in this row (last row can be shorter)
@@ -2025,7 +1845,7 @@ def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_
                     circle_w = pw - 4
                     circle_h = ph - 2
                     oval_xml = (
-                        f"<v:oval style=\"position:absolute;left:{circle_left}pt;top:{circle_top}pt;width:{circle_w}pt;height:{circle_h}pt;z-index:7\" fillcolor=\"none\" strokecolor=\"{light_color}\" strokeweight=\"0.75pt\"/>"
+                        f"<v:oval style=\"position:absolute;left:{circle_left}pt;top:{circle_top}pt;width:{circle_w}pt;height:{circle_h}pt;z-index:7\" fillcolor=\"none\" strokecolor=\"black\" strokeweight=\"0.75pt\"/>"
                     )
                     planet_boxes.append(oval_xml)
                 if varg:
@@ -2034,7 +1854,7 @@ def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_
                     badge_left = left_pl + pw - badge_w + 0.5
                     badge_top = top_box - 2
                     badge_xml = (
-                        f"<v:rect style=\"position:absolute;left:{badge_left}pt;top:{badge_top}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8\" fillcolor=\"#ffffff\" strokecolor=\"{light_color}\" strokeweight=\"0.75pt\"/>"
+                        f"<v:rect style=\"position:absolute;left:{badge_left}pt;top:{badge_top}pt;width:{badge_w}pt;height:{badge_h}pt;z-index:8\" fillcolor=\"#ffffff\" strokecolor=\"black\" strokeweight=\"0.75pt\"/>"
                     )
                     planet_boxes.append(badge_xml)
     # Compose shapes after processing all houses
@@ -2044,13 +1864,13 @@ def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_
     <w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr><w:r>
       <w:pict xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w10="urn:schemas-microsoft-com:office:word"><w10:wrap type="topAndBottom"/>
         <v:group style="position:relative;margin-left:auto;margin-right:auto;margin-top:0;width:{S}pt;height:{int(S*0.80)}pt" coordorigin="0,0" coordsize="{S},{S}">
-          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{light_color}" strokeweight="3pt" fillcolor="{lighten_color(color, 0.8)}"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="#CC6600" strokeweight="3pt" fillcolor="#ffdcc8"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="#CC6600" strokeweight="1.25pt"/>
           {boxes_xml}
         </v:group>
       </w:pict>
@@ -2059,7 +1879,7 @@ def kundali_with_planets(size_pt=None, lagna_sign=1, house_planets=None, begins_
     return parse_xml(xml)
 
 
-def kundali_single_box(size_pt=220, lagna_sign=1, house_planets=None, color="#FF6600"):
+def kundali_single_box(size_pt=220, lagna_sign=1, house_planets=None):
     # One text box per house: first row = house number, second row = planets (centered)
     if house_planets is None:
         house_planets = {i: [] for i in range(1, 13)}
@@ -2133,13 +1953,13 @@ def kundali_single_box(size_pt=220, lagna_sign=1, house_planets=None, color="#FF
     <w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr><w:r>
       <w:pict xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w10="urn:schemas-microsoft-com:office:word"><w10:wrap type="topAndBottom"/>
         <v:group style="position:relative;margin-left:auto;margin-right:auto;margin-top:0;width:{S}pt;height:{int(S*0.80)}pt" coordorigin="0,0" coordsize="{S},{S}">
-          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{light_color}" strokeweight="3pt" fillcolor="{lighten_color(color, 0.8)}"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="{light_color}" strokeweight="1.25pt"/>
+          <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="#CC6600" strokeweight="3pt" fillcolor="#ffdcc8"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{T}" to="{R},{B}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{T}" to="{L},{B}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{T}" to="{R},{S/2}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{R},{S/2}" to="{S/2},{B}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{S/2},{B}" to="{L},{S/2}" strokecolor="#CC6600" strokeweight="1.25pt"/>
+          <v:line style="position:absolute;z-index:2" from="{L},{S/2}" to="{S/2},{T}" strokecolor="#CC6600" strokeweight="1.25pt"/>
           {boxes_xml}
         </v:group>
       </w:pict>
@@ -2211,20 +2031,20 @@ def kundali_w_p_with_centroid_labels(size_pt=220, lagna_sign=1):
     <w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr><w:r>
         <w:pict xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w10="urn:schemas-microsoft-com:office:word"><w10:wrap type="topAndBottom"/>
           <v:group style="position:relative;margin-left:auto;margin-right:auto;margin-top:0;width:{S}pt;height:{int(S*0.80)}pt" coordorigin="0,0" coordsize="{S},{S}">
-            <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="{light_color}" strokeweight="3pt" fillcolor="{lighten_color(color, 0.8)}"/>
-            <v:line style="position:absolute;z-index:2" from="0,0" to="{S},{S}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-            <v:line style="position:absolute;z-index:2" from="{S},0" to="0,{S}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-            <v:line style="position:absolute;z-index:2" from="{S/2},0" to="{S},{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-            <v:line style="position:absolute;z-index:2" from="{S},{S/2}" to="{S/2},{S}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-            <v:line style="position:absolute;z-index:2" from="{S/2},{S}" to="0,{S/2}" strokecolor="{light_color}" strokeweight="1.25pt"/>
-            <v:line style="position:absolute;z-index:2" from="0,{S/2}" to="{S/2},0" strokecolor="{light_color}" strokeweight="1.25pt"/>
+            <v:rect style="position:absolute;left:0;top:0;width:{S}pt;height:{S}pt;z-index:1" strokecolor="black" strokeweight="1.25pt" fillcolor="#ffdcc8"/>
+            <v:line style="position:absolute;z-index:2" from="0,0" to="{S},{S}" strokecolor="black" strokeweight="1.25pt"/>
+            <v:line style="position:absolute;z-index:2" from="{S},0" to="0,{S}" strokecolor="black" strokeweight="1.25pt"/>
+            <v:line style="position:absolute;z-index:2" from="{S/2},0" to="{S},{S/2}" strokecolor="black" strokeweight="1.25pt"/>
+            <v:line style="position:absolute;z-index:2" from="{S},{S/2}" to="{S/2},{S}" strokecolor="black" strokeweight="1.25pt"/>
+            <v:line style="position:absolute;z-index:2" from="{S/2},{S}" to="0,{S/2}" strokecolor="black" strokeweight="1.25pt"/>
+            <v:line style="position:absolute;z-index:2" from="0,{S/2}" to="{S/2},0" strokecolor="black" strokeweight="1.25pt"/>
             {boxes_xml}
           </v:group>
         </w:pict></w:r></w:p>'''
     return parse_xml(xml)
 
 
-def add_table_borders(table, size=6, color="#D2691E"):
+def add_table_borders(table, size=6):
     tbl = table._tbl
     tblPr = tbl.tblPr
     tblBorders = OxmlElement('w:tblBorders')
@@ -2232,7 +2052,6 @@ def add_table_borders(table, size=6, color="#D2691E"):
         el = OxmlElement(f'w:{edge}')
         el.set(qn('w:val'), 'single')
         el.set(qn('w:sz'), str(size))
-        el.set(qn('w:color'), color.lstrip('#'))  # Remove # for Word XML
         tblBorders.append(el)
     tblPr.append(tblBorders)
 
@@ -2262,10 +2081,7 @@ def create_cylindrical_section_header(container,
                                       spacing_after=20,
                                       text_jc='center',
                                       run_text=True,
-                                      line_exact=False,
-                                      primary_color="#FFD700",
-                                      gradient_color="#FFEACC",
-                                      yellow_gradient=False):
+                                      line_exact=False):
     """Create modern cylindrical tube-shaped section headers with dynamic width"""
     # Create paragraph for the header
     header_para = container.add_paragraph()
@@ -2301,18 +2117,7 @@ def create_cylindrical_section_header(container,
         run.font.bold = True
         run.font.color.rgb = RGBColor(255, 255, 255)  # White text
 
-    # Compute colors for VML template
-    if yellow_gradient:
-        # Create gradient like your screenshot: light cream -> user selected color
-        light_cream = "#FFF8DC"  # Light cream/yellow color for start
-        end_color = gradient_color  # User selected color for end
-        border_color = gradient_color  # Use user color for border
-        fill_colors = f"color=\"{light_cream}\" color2=\"{end_color}\""
-    else:
-        border_color = primary_color
-        fill_colors = f"color=\"{primary_color}\" color2=\"{gradient_color}\""
-    
-    # Add beautiful gradient background styling using VML shape with 3-stop gradient
+    # Add beautiful gradient background styling using VML shape
     xml_content = f'''
     <w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
       <w:pPr>
@@ -2322,8 +2127,8 @@ def create_cylindrical_section_header(container,
       <w:r>
         <w:pict xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w10="urn:schemas-microsoft-com:office:word"><w10:wrap type="topAndBottom"/>
           <v:roundrect style="position:relative;width:{width_pt}pt;height:28pt;margin-left:auto;margin-right:auto" 
-                       arcsize="45%" strokecolor="{border_color}" strokeweight="1.5pt">
-            <v:fill type="gradient" {fill_colors} angle="90" opacity="1"/>
+                       arcsize="45%" strokecolor="#D2691E" strokeweight="1.5pt">
+            <v:fill type="gradient" color="#F15A23" color2="#FFEACC" angle="90" opacity="1"/>
             <v:textbox inset="8pt,4pt,8pt,4pt">
               <w:txbxContent>
                 <w:p>
@@ -2592,9 +2397,8 @@ def create_unified_personal_details_box(container, name, dob, tob, place):
             border = OxmlElement(f'w:{edge}')
             border.set(qn('w:val'), 'single')
             border.set(qn('w:sz'), '6')  # Thin border
-            # Use user_color dark variant instead of hardcoded orange
-            dark_color = hex_to_rgb_hex(darken_color(user_color, 0.3))
-            border.set(qn('w:color'), dark_color)
+            border.set(qn('w:color'),
+                       'F15A23')  # Orange color matching reference
             tcBorders.append(border)
         tcPr.append(tcBorders)
 
@@ -2697,7 +2501,7 @@ def create_rounded_table_container(doc,
       <w:r>
         <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
           <v:roundrect style="position:relative;width:{width_pt}pt;height:{height_pt}pt" 
-                       arcsize="15%" fillcolor="{lighten_color(primary_color, 0.8)}" strokecolor="{darken_color(primary_color, 0.3)}" strokeweight="2pt">
+                       arcsize="15%" fillcolor="#ffdcc8" strokecolor="#D2691E" strokeweight="2pt">
             <v:textbox inset="8pt,8pt,8pt,8pt">
               <w:txbxContent>
                 {table_content}
@@ -2713,7 +2517,8 @@ def create_rounded_table_container(doc,
 
 
 def apply_premium_table_style(table,
-                              base_color="#FF6600"):
+                              header_color_rgb=(204, 102, 0),
+                              alt_row_color_rgb=(255, 235, 224)):
     """Apply premium professional styling to tables with genuine rounded corners using VML background"""
     try:
         # Apply table borders - no outer borders for rounded effect
@@ -2736,7 +2541,7 @@ def apply_premium_table_style(table,
             border = OxmlElement(f'w:{edge}')
             border.set(qn('w:val'), style)
             border.set(qn('w:sz'), size)
-            border.set(qn('w:color'), darken_color(base_color, 0.3).lstrip('#'))  # Use selected color darkened
+            border.set(qn('w:color'), 'D2691E')  # Dark orange color
             tblBorders.append(border)
         tblPr.append(tblBorders)
 
@@ -2798,7 +2603,7 @@ def apply_premium_table_style(table,
                         vml_xml = f'''
                         <w:pict xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                           <v:roundrect style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:-1" 
-                                       arcsize="15%" fillcolor="{lighten_color(base_color, 0.8)}" strokecolor="{darken_color(base_color, 0.3)}" strokeweight="1pt">
+                                       arcsize="15%" fillcolor="#ffdcc8" strokecolor="#D2691E" strokeweight="1pt">
                           </v:roundrect>
                         </w:pict>
                         '''
@@ -2822,9 +2627,8 @@ def apply_premium_table_style(table,
             shd = OxmlElement('w:shd')
             shd.set(qn('w:val'), 'clear')
             shd.set(qn('w:color'), 'auto')
-            # Get color variants for comprehensive theming
-            variants = get_color_variants(base_color)
-            shd.set(qn('w:fill'), variants['dark'].lstrip('#'))
+            shd.set(qn('w:fill'),
+                    '{:02x}{:02x}{:02x}'.format(*header_color_rgb))
             tcPr.append(shd)
 
             # Add minimal cell padding for compactness
@@ -2856,7 +2660,8 @@ def apply_premium_table_style(table,
                     shd = OxmlElement('w:shd')
                     shd.set(qn('w:val'), 'clear')
                     shd.set(qn('w:color'), 'auto')
-                    shd.set(qn('w:fill'), variants['light'].lstrip('#'))
+                    shd.set(qn('w:fill'),
+                            '{:02x}{:02x}{:02x}'.format(*alt_row_color_rgb))
                     tcPr.append(shd)
                 # Even rows (2,4,6...) get no background color (default white)
 
@@ -3044,10 +2849,7 @@ def add_pramukh_bindu_section(container_cell, sidelons, lagna_sign, dob_dt):
     # title.paragraph_format.space_after = Pt(3)
     create_cylindrical_section_header(container_cell,
                                       "प्रमुख बिंदु",
-                                      width_pt=260,
-                                      primary_color="#FFD700",
-                                      gradient_color=user_color,
-                                      yellow_gradient=True)
+                                      width_pt=260)
 
     rows = []
 
@@ -3089,9 +2891,10 @@ def add_pramukh_bindu_section(container_cell, sidelons, lagna_sign, dob_dt):
         r[0].text = left_txt
         r[1].text = right_txt
 
-    # Borders similar to other tables - use user_color from scope
-    add_table_borders(t, size=6, color=user_color)
-    apply_premium_table_style(t, user_color)  # Apply themed headers and alternating rows
+    # Borders similar to other tables
+    add_table_borders(t, size=6)
+    apply_premium_table_style(
+        t)  # Apply orange headers and alternating grey rows
     compact_table_paragraphs(t)
 
 
@@ -3227,7 +3030,7 @@ with row1c2:
             st.write(f"📍 **Coordinates:** {lat_dms} {lon_dms}")
         
         with edit_col:
-            if st.button("✏️", help="Edit coordinates", key="edit_coordinates_btn", width="stretch"):
+            if st.button("✏️", help="Edit coordinates", key="edit_coordinates_btn", use_container_width=True):
                 st.session_state['coord_edit_mode'] = True
                 # Store current coordinates in DMS format for editing
                 st.session_state['edit_lat_dms'] = decimal_to_dms(lat_val, is_latitude=True)
@@ -3663,57 +3466,14 @@ st.write("")
 
 api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
 
-# === Advanced Settings centered with Generate button above ===
-# Generate button (centered)
-btn_l, btn_m, btn_r = st.columns([1,1,1])
-with btn_m:
-    generate_clicked = st.button("Generate Kundali", key="gen_btn", use_container_width=True)
-
-# Advanced Settings (centered, half width)
-a_l, a_m, a_r = st.columns([1,2,1])
-with a_m:
-    with st.expander("🎨 Advanced Settings", expanded=False):
-                # Background template selection
-                st.markdown("**Document Background Template**")
-                background_options = {
-                    "Default Template": "bg_template.docx",
-                    "Background Style 1": "background_1_1757647705677.docx", 
-                    "Background Style 2": "background_2_1757647705678.docx",
-                    "Background Style 3": "background_3_1757647705678.docx",
-                    "Background Style 4": "background_4_1757647705676.docx"
-                }
-        
-                selected_background = st.selectbox(
-                    "Choose Background Template",
-                    options=list(background_options.keys()),
-                    index=0,  # Default to first option
-                    key="background_template",
-                    label_visibility="collapsed"
-                )
-    
-                # Color scheme selection
-                st.markdown("**Color Scheme**")
-                color_options = {
-                    "Orange (Default)": "#FF6600",
-                    "Pink Lace": "#F0D7F5", 
-                    "Mint": "#99EDC3",
-                    "Coral": "#FE7D6A",
-                    "Rose": "#FC94AF"
-                }
-        
-                selected_color = st.selectbox(
-                    "Color Scheme",
-                    options=list(color_options.keys()),
-                    index=0,
-                    key="color_scheme",
-                    label_visibility="collapsed"
-                )
-if generate_clicked:
-    print("DEBUG: Generate Kundali button clicked!")
-    st.session_state['generate_clicked'] = True
-    st.session_state['submitted'] = True
-    print("DEBUG: About to rerun after button click")
-    st.rerun()  # Immediate rerun to show validation
+# Center the Generate Kundali button
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
+    generate_clicked = st.button("Generate Kundali", key="gen_btn")
+    if generate_clicked:
+        st.session_state['generate_clicked'] = True
+        st.session_state['submitted'] = True
+        st.rerun()  # Immediate rerun to show validation
 
 # --- Validation gate computed on rerun after click ---
 can_generate = False
@@ -3781,13 +3541,11 @@ if generate_clicked or st.session_state.get('submitted'):
 # Show download button only if Kundali was generated in this session
 
 if can_generate:
-    print("DEBUG: can_generate is True, starting generation process")
     # key presence
     api_key = st.secrets.get("GEOAPIFY_API_KEY", "")
     if not api_key:
         st.error("Geoapify key missing. Add GEOAPIFY_API_KEY in Secrets.")
         st.stop()
-    print("DEBUG: API key found, proceeding with generation")
 
     try:
         # Use the validated variables from session state
@@ -3945,53 +3703,14 @@ if can_generate:
         img_lagna = render_north_diamond(size_px=800, stroke=3)
         img_nav = render_north_diamond(size_px=800, stroke=3)
         # ===== ENHANCED DOCUMENT SETUP =====
-        # Get user's advanced settings selections
-        background_options = {
-            "Default Template": "bg_template.docx",
-            "Background Style 1": "background_1_1757647705677.docx", 
-            "Background Style 2": "background_2_1757647705678.docx",
-            "Background Style 3": "background_3_1757647705678.docx",
-            "Background Style 4": "background_4_1757647705676.docx"
-        }
-        
-        color_options = {
-            "Orange (Default)": "#FF6600",
-            "Pink Lace": "#F0D7F5", 
-            "Mint": "#99EDC3",
-            "Coral": "#FE7D6A",
-            "Rose": "#FC94AF"
-        }
-        
-        # Get selected template and color from session state
-        selected_background = st.session_state.get('background_template', 'Default Template')
-        selected_color = st.session_state.get('color_scheme', 'Orange (Default)')
-        template_file = background_options[selected_background]
-        user_color = color_options[selected_color]
-        
-        # Generate Word document using selected template  
-        doc = make_document(template_file)
-        
-        # Note: VML color theming is now handled directly at runtime during generation
-        # No need for post-processing color replacement
-            
-        # Safely access document sections
-        try:
-            if doc.sections:
-                sec = doc.sections[0]
-                sec.page_width = Mm(210)
-                sec.page_height = Mm(297)
-                margin = Mm(10)
-                sec.left_margin = sec.right_margin = margin
-                sec.top_margin = Mm(8)
-                sec.bottom_margin = Mm(8)
-            else:
-                # Create a section if none exists
-                from docx.document import Document as DocxDocument
-                if hasattr(doc, '_part'):
-                    doc._part.sectPr
-        except Exception as e:
-            print(f"Warning: Could not set page dimensions: {e}")
-            # Continue with document generation even if page setup fails
+        doc = make_document()
+        sec = doc.sections[0]
+        sec.page_width = Mm(210)
+        sec.page_height = Mm(297)
+        margin = Mm(10)
+        sec.left_margin = sec.right_margin = margin
+        sec.top_margin = Mm(8)
+        sec.bottom_margin = Mm(8)
 
         # Enhanced document styling
         style = doc.styles['Normal']
@@ -4040,13 +3759,12 @@ if can_generate:
                     except Exception:
                         pass
             try:
-                if doc.sections:
-                    for p in list(doc.sections[0].header.paragraphs)[:10]:
-                        t = (p.text or "").strip()
-                        if any(k in t
-                               for k in _brand_keys) or any(k in t
-                                                            for k in _tag_keys):
-                            _clear_para_text(p)
+                for p in list(doc.sections[0].header.paragraphs)[:10]:
+                    t = (p.text or "").strip()
+                    if any(k in t
+                           for k in _brand_keys) or any(k in t
+                                                        for k in _tag_keys):
+                        _clear_para_text(p)
             except Exception:
                 pass
         except Exception:
@@ -4172,7 +3890,7 @@ if can_generate:
                       <w:r>
                         <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
                           <v:roundrect style="position:absolute;left:0pt;top:0pt;width:{int(left_width_in * 72) - 10}pt;height:{vml_h_pt}pt;z-index:-1" 
-                                       arcsize="15%" fillcolor="transparent" strokecolor="{light_color}" strokeweight="3pt">
+                                       arcsize="15%" fillcolor="transparent" strokecolor="#CC6600" strokeweight="3pt">
                           </v:roundrect>
                         </w:pict>
                       </w:r>
@@ -4189,14 +3907,13 @@ if can_generate:
                 if existing_borders is not None:
                     tcPr.remove(existing_borders)
 
-                # Add themed borders using user color
-                dark_color = hex_to_rgb_hex(darken_color(user_color, 0.3))
+                # Add dark orange borders
                 tcBorders = OxmlElement('w:tcBorders')
                 for edge in ('top', 'left', 'bottom', 'right'):
                     el = OxmlElement(f'w:{edge}')
                     el.set(qn('w:val'), 'single')
                     el.set(qn('w:sz'), '18')  # Thick border
-                    el.set(qn('w:color'), dark_color)  # Themed dark variant
+                    el.set(qn('w:color'), 'CC6600')  # Dark orange
                     el.set(qn('w:space'), '0')
                     tcBorders.append(el)
                 tcPr.append(tcBorders)
@@ -4369,7 +4086,7 @@ if can_generate:
         # Personal details are now in the header section above, no need for duplicate
         # Original planetary positions section
         # h1 = left.add_paragraph("ग्रह स्थिति"); _apply_hindi_caption_style(h1, size_pt=11, underline=True, bold=True)
-        create_cylindrical_section_header(left, "ग्रह स्थिति", width_pt=260, primary_color="#FFD700", gradient_color=user_color, yellow_gradient=True)
+        create_cylindrical_section_header(left, "ग्रह स्थिति", width_pt=260)
 
         # === COMPLETELY REWRITTEN FIRST TABLE: ग्रह स्थिति ===
         # Create table with exact 5 columns for clean structure
@@ -4403,8 +4120,8 @@ if can_generate:
         # Apply styling and formatting
         center_header_row(t1)
         set_table_font(t1, pt=BASE_FONT_PT)
-        add_table_borders(t1, size=6, color=user_color)
-        apply_premium_table_style(t1, user_color)
+        add_table_borders(t1, size=6)
+        apply_premium_table_style(t1)
 
         # Set proper column widths AFTER creating structure
         set_col_widths(t1, [0.70, 0.55, 0.85, 0.80, 0.80])
@@ -4416,15 +4133,34 @@ if can_generate:
         # Original Mahadasha section
         # h2 = left.add_paragraph("विंशोत्तरी महादशा"); _apply_hindi_caption_style(h2, size_pt=11, underline=True, bold=True); h2.paragraph_format.keep_with_next = True; h2.paragraph_format.space_after = Pt(2)
 
-        # === CHALIT (Sripati/Porphyry) SECTION REMOVED ===
-        # This section has been removed as requested
+        # === CHALIT (Sripati/Porphyry) SECTION ===
+        create_cylindrical_section_header(left,
+                                          "भव चलित (Sripati)",
+                                          width_pt=260)
+        t_ch = left.add_table(rows=1, cols=5)
+        t_ch.autofit = False
+        for i, h in enumerate(
+            ["Bhav", "Rashi", "BhavBegin", "Rashi", "MidBhav"]):
+            t_ch.rows[0].cells[i].text = h
+        for _, row in df_chalit.iterrows():
+            r = t_ch.add_row().cells
+            r[0].text = str(row["Bhav"])
+            r[1].text = str(row["Rashi"])
+            r[2].text = str(row["BhavBegin"])
+            r[3].text = str(row["RashiMid"])
+            r[4].text = str(row["MidBhav"])
+            for c in r:
+                for p in c.paragraphs:
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        center_header_row(t_ch)
+        set_table_font(t_ch, pt=BASE_FONT_PT)
+        add_table_borders(t_ch, size=6)
+        apply_premium_table_style(t_ch)
+        set_col_widths(t_ch, [0.60, 1.10, 1.10, 1.00, 1.10])
 
         create_cylindrical_section_header(left,
                                           "विंशोत्तरी महादशा",
-                                          width_pt=260,
-                                          primary_color="#FFD700",
-                                          gradient_color=user_color,
-                                          yellow_gradient=True)
+                                          width_pt=260)
         t2 = left.add_table(rows=1, cols=len(df_md.columns))
         t2.autofit = True
         for i, c in enumerate(df_md.columns):
@@ -4440,18 +4176,16 @@ if can_generate:
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         center_header_row(t2)
         set_table_font(t2, pt=BASE_FONT_PT)
-        add_table_borders(t2, size=6, color=user_color)
-        apply_premium_table_style(t2, user_color)  # Apply themed headers and alternating rows
+        add_table_borders(t2, size=6)
+        apply_premium_table_style(
+            t2)  # Apply orange headers and alternating grey rows
         set_col_widths(t2, [1.20, 1.50, 1.00])
 
         # Original Antardasha section
         # h3 = left.add_paragraph("महादशा / अंतरदशा"); _apply_hindi_caption_style(h3, size_pt=11, underline=True, bold=True)
         create_cylindrical_section_header(left,
                                           "महादशा / अंतरदशा",
-                                          width_pt=260,
-                                          primary_color="#FFD700",
-                                          gradient_color=user_color,
-                                          yellow_gradient=True)
+                                          width_pt=260)
         t3 = left.add_table(rows=1, cols=len(df_an.columns))
         t3.autofit = True
         for i, c in enumerate(df_an.columns):
@@ -4467,8 +4201,9 @@ if can_generate:
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         center_header_row(t3)
         set_table_font(t3, pt=BASE_FONT_PT)
-        add_table_borders(t3, size=6, color=user_color)
-        apply_premium_table_style(t3, user_color)  # Apply themed headers and alternating rows
+        add_table_borders(t3, size=6)
+        apply_premium_table_style(
+            t3)  # Apply orange headers and alternating grey rows
         set_col_widths(
             t3,
             [1.30, 1.40, 1.00])  # Adjusted column widths for better alignment
@@ -4541,15 +4276,11 @@ if can_generate:
             set_cell_margins(cell1, top=0, bottom=0)
         except Exception:
             pass
-        # Lagna chart cylindrical header bar (centered) with user color theme
-        variants = get_color_variants(user_color)
+        # Lagna chart cylindrical header bar (centered)
         create_cylindrical_section_header(cell1,
                                           "लग्न कुंडली",
                                           width_pt=int(CHART_W_PT),
                                           align='center',
-                                          primary_color="#FFD700",
-                                          gradient_color=user_color,
-                                          yellow_gradient=True,
                                           spacing_after=0,
                                           text_jc='center',
                                           run_text=False,
@@ -4558,36 +4289,21 @@ if can_generate:
         # Lagna chart with planets in single box per house
         rasi_house_planets = build_chalit_house_planets_marked(
             sidelons, begins_sid)
-        stats = compute_statuses_all(sidelons)
-        planet_labels = {c: fmt_planet_label(c, _make_flags('rasi', stats[c])) for c in ['Su','Mo','Ma','Me','Ju','Ve','Sa','Ra','Ke']}
-        planet_flags = {c: {'self': _make_flags('rasi', stats[c])['self'], 'vargottama': _make_flags('rasi', stats[c])['vargottama']} for c in ['Su','Mo','Ma','Me','Ju','Ve','Sa','Ra','Ke']}
         hdr_p._p.addnext(
-            render_kundali_chalit(
-                size_pt=CHART_W_PT,
-                lagna_sign=lagna_sign,
-                sidelons=sidelons,
-                begins_sid=begins_sid,
-                mids_sid=mids_sid,
-                pair_threshold_deg=6.0,
-                color=user_color,
-                planet_labels=planet_labels,
-                planet_flags=planet_flags
-            )
-        )
+            kundali_with_planets(size_pt=CHART_W_PT,
+                                 lagna_sign=lagna_sign,
+                                 house_planets=rasi_house_planets))
 
         # Original Navamsa chart title - Enhanced styling for visibility
         cell2 = kt.rows[1].cells[0]
         sp_nav = cell2.add_paragraph()
         sp_nav.paragraph_format.space_before = Pt(40)
         sp_nav.paragraph_format.space_after = Pt(0)
-        # Navamsha chart cylindrical header bar (centered) with user color theme
+        # Navamsha chart cylindrical header bar (centered)
         create_cylindrical_section_header(cell2,
                                           "नवांश कुंडली",
                                           width_pt=int(CHART_W_PT),
                                           align='center',
-                                          primary_color="#FFD700",
-                                          gradient_color=user_color,
-                                          yellow_gradient=True,
                                           spacing_after=0,
                                           text_jc='center')
         p2 = cell2.add_paragraph()
@@ -4598,8 +4314,7 @@ if can_generate:
         p2._p.addnext(
             kundali_with_planets(size_pt=CHART_W_PT,
                                  lagna_sign=nav_lagna_sign,
-                                 house_planets=nav_house_planets,
-                                 color=user_color))
+                                 house_planets=nav_house_planets))
         # (प्रमुख बिंदु moved to row 2 of outer table)
         # Ensure content goes below chart shape - single spacing paragraph
         cell2.add_paragraph("").paragraph_format.space_after = Pt(0)
