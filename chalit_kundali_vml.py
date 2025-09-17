@@ -182,7 +182,7 @@ def render_kundali_chalit(
             code=code, label=_planet_label_with_markers(code, lon, sidelons),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
             disp_xy=disp_xy, eff_xy=effective_xy,
-            shift=shift_arrow, self_flag=_flags.get('self', False)
+            shift=shift_arrow, self_flag=bool(_flags.get('own') or _flags.get('self') or _flags.get('own_sign'))
         ))
 
 
