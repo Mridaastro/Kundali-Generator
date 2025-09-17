@@ -11,6 +11,12 @@ from docx.oxml import parse_xml
 
 HN_ABBR = {'Su': 'सू', 'Mo': 'चं', 'Ma': 'मं', 'Me': 'बु', 'Ju': 'गु', 'Ve': 'शु', 'Sa': 'श', 'Ra': 'रा', 'Ke': 'के'}
 
+# ---- Visual constants for shift arrows ----
+ARROW_LEN_PX = 28      # constant arrow length in points (approx px in VML units here)
+ARROW_START_GAP = 6    # gap from planet/corner before arrow begins
+ARROW_LABEL_OFFSET = 10  # distance to place label 'above' the arrow (perpendicular offset)
+
+
 def _n360(x: float) -> float:
     x = fmod(x, 360.0)
     return x if x >= 0 else x + 360.0
@@ -209,7 +215,7 @@ def render_kundali_chalit(
         num_w, num_h = 10, 12
         left = cx - num_w/2; top = cy - num_h/2
         shapes.append(f'''
-        <v:rect style="position:absolute;left:{left}pt;top:{top}pt;width:{num_w}pt;height:{num_h}pt;z-index:80" fillcolor="#ffffff" strokecolor="none">
+        <v:rect style="position:absolute;left:{left}pt;top:{top}pt;width:{num_w}pt;height:{num_h}pt;z-index:80" fillcolor="#ffffff" stroked="f" strokecolor="none">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{labels[h]}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
@@ -233,16 +239,29 @@ def render_kundali_chalit(
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
+            # direction vector from start to end
+            dx = ex - sx; dy = ey - sy
+            norm = (dx*dx + dy*dy) ** 0.5 or 1.0
+            nx = dx / norm; ny = dy / norm
+            # constant-length arrow with a start gap
+            sx2 = sx + nx * ARROW_START_GAP
+            sy2 = sy + ny * ARROW_START_GAP
+            ex2 = sx2 + nx * ARROW_LEN_PX
+            ey2 = sy2 + ny * ARROW_LEN_PX
+            # label above the arrow: use perpendicular normal (-ny, nx)
+            mx = (sx2 + ex2) / 2.0
+            my = (sy2 + ey2) / 2.0
+            lx = mx - ny * ARROW_LABEL_OFFSET
+            ly = my + nx * ARROW_LABEL_OFFSET
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 8}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
+            <v:rect style="position:absolute;left:{lx - 8}pt;top:{ly - 10}pt;width:16pt;height:10pt;z-index:8" stroked="f" stroked="f" strokecolor="none" fillcolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
             </v:rect>''')
-
     # Close-pair double-headed arrows
     for ar in pair_arrows:
         (sx,sy) = ar['start']; (ex,ey) = ar['end']
@@ -250,7 +269,7 @@ def render_kundali_chalit(
         <v:line style="position:absolute;z-index:9" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#7a2e2e" strokeweight="1pt">
           <v:stroke endarrow="classic" startarrow="classic"/>
         </v:line>
-        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 10}pt;width:16pt;height:10pt;z-index:10" strokecolor="none">
+        <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 10}pt;width:16pt;height:10pt;z-index:10" stroked="f" strokecolor="none">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{ar['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
