@@ -233,7 +233,7 @@ def render_kundali_chalit(
         left = max(minx + _pad, min(left, maxx - _pad - mark_w))
         top  = max(miny + _pad, min(top,  maxy - _pad - mark_h))
         shapes.append(f'''
-        <v:roundrect arcsize="0.3" style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="black" fillcolor="#ffffff" strokeweight="0.75pt">
+        <v:roundrect arcsize="0.3" style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" stroked="f" strokecolor="none" fillcolor="#ffffff">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{p['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
