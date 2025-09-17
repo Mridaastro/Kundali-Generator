@@ -144,6 +144,7 @@ def render_kundali_chalit(
     order = ['Su','Mo','Ma','Me','Ju','Ve','Sa','Ra','Ke']
     for code in order:
         lon = _n360(sidelons[code])
+        _flags = _calculate_planet_status(code, lon, sidelons, chart_type='D1')
         h_r = ((int(_n360(lon)//30) + 1 - lagna_sign) % 12) + 1
         # per-chalit house
         h_c = _house_chalit(begins_sid, lon)
@@ -181,9 +182,35 @@ def render_kundali_chalit(
             code=code, label=_planet_label_with_markers(code, lon, sidelons),
             h_r=h_r, h_c=h_c, lon=lon, t=t,
             disp_xy=disp_xy, eff_xy=effective_xy,
-            shift=shift_arrow
+            shift=shift_arrow, self_flag=_flags.get('self', False)
         ))
 
+
+    # Re-layout labels: if >2 in a display house, arrange in rows of 2
+    display_groups = {h: [] for h in range(1,13)}
+    for p in placements:
+        disp_house = p['h_r'] if p['shift'] else p['h_c']
+        display_groups[disp_house].append(p)
+    for h in range(1,13):
+        group = display_groups[h]
+        if len(group) <= 2:
+            continue
+        # Sort by 't' for stable ordering
+        group.sort(key=lambda p: p['t'])
+        minx, miny, maxx, maxy = _bbox_of_poly(houses[h])
+        pad = max(4.0, S*0.03)
+        cols = 2
+        rows = (len(group) + cols - 1) // cols
+        gw = (maxx - minx) - 2*pad
+        gh = (maxy - miny) - 2*pad
+        # Cell center positions
+        xs = [minx + pad + (i + 0.5) * gw / cols for i in range(cols)]
+        ys = [miny + pad + (r + 0.5) * gh / rows for r in range(rows)]
+        for idx, p in enumerate(group):
+            r = idx // cols
+            c = idx % cols
+            p['disp_xy'] = (xs[c], ys[r])
+    
     # Close-pair arrows (≤ 6°) within each chalit house
     pair_arrows = []
     for h in range(1,13):
@@ -250,7 +277,16 @@ def render_kundali_chalit(
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{p['label']}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
         </v:roundrect>''')
+        # Encircle self-ruling planets
+        if p.get('self_flag'):
+            circ_pad = 2.0
+            shapes.append(f'''
+            <v:oval style="position:absolute;left:{left - circ_pad}pt;top:{top - circ_pad}pt;width:{mark_w + 2*circ_pad}pt;height:{mark_h + 2*circ_pad}pt;z-index:8" strokecolor="#000000" strokeweight="0.75pt" fillcolor="none"/>''')
         if p['shift']:
+            circ_pad = 2.0
+            shapes.append(f'''
+            <v:oval style="position:absolute;left:{left - circ_pad}pt;top:{top - circ_pad}pt;width:{mark_w + 2*circ_pad}pt;height:{mark_h + 2*circ_pad}pt;z-index:8" strokecolor="#000000" strokeweight="0.75pt" fillcolor="none"/>''')
+
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
             dx = ex - sx; dy = ey - sy
@@ -266,7 +302,7 @@ def render_kundali_chalit(
             lx = mx - ny*ARROW_LABEL_OFFSET
             ly = my + nx*ARROW_LABEL_OFFSET
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:9" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
             <v:rect style="position:absolute;left:{lx - 9}pt;top:{ly - 10}pt;width:18pt;height:12pt;z-index:8" strokecolor="none">
