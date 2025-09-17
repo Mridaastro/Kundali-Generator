@@ -12,9 +12,9 @@ from docx.oxml import parse_xml
 HN_ABBR = {'Su': 'सू', 'Mo': 'चं', 'Ma': 'मं', 'Me': 'बु', 'Ju': 'गु', 'Ve': 'शु', 'Sa': 'श', 'Ra': 'रा', 'Ke': 'के'}
 
 # ---- Visual constants for shift arrows ----
-ARROW_LEN_PX = 28
+ARROW_LEN_PX = 14
 ARROW_START_GAP = 6
-ARROW_LABEL_OFFSET = 10
+ARROW_LABEL_OFFSET = 12
 
 
 def _n360(x: float) -> float:
@@ -222,7 +222,7 @@ def render_kundali_chalit(
         </v:rect>''')
         # center baseline + tick removed
     # Planet markers + shift arrows
-    mark_w, mark_h = 16, 12
+    mark_w, mark_h = 22, 16
     for p in placements:
         x, y = p['disp_xy']
         left = x - mark_w/2; top = y - mark_h/2
