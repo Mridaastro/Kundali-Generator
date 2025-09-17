@@ -283,10 +283,6 @@ def render_kundali_chalit(
             shapes.append(f'''
             <v:oval style="position:absolute;left:{left - circ_pad}pt;top:{top - circ_pad}pt;width:{mark_w + 2*circ_pad}pt;height:{mark_h + 2*circ_pad}pt;z-index:8" strokecolor="#000000" strokeweight="0.75pt" fillcolor="none"/>''')
         if p['shift']:
-            circ_pad = 2.0
-            shapes.append(f'''
-            <v:oval style="position:absolute;left:{left - circ_pad}pt;top:{top - circ_pad}pt;width:{mark_w + 2*circ_pad}pt;height:{mark_h + 2*circ_pad}pt;z-index:8" strokecolor="#000000" strokeweight="0.75pt" fillcolor="none"/>''')
-
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
             dx = ex - sx; dy = ey - sy
