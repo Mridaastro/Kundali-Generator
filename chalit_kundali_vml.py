@@ -98,10 +98,10 @@ def _border_anchor_for_shift(houses, h_rasi: int, forward: bool, S: float):
     cx, cy = _poly_centroid(poly)
     neighbor = 1 if (h_rasi == 12 and forward) else (h_rasi + 1 if forward else (h_rasi - 1 if h_rasi > 1 else 12))
     n_cx, n_cy = _poly_centroid(houses[neighbor])
-    t = 0.55
+    t = 0.44
     sx = cx + (n_cx - cx)*t
     sy = cy + (n_cy - cy)*t
-    pad = max(4.0, S*0.02)
+    pad = max(6.0, S*0.035)
     sx = max(pad, min(sx, S - pad))
     sy = max(pad, min(sy, S - pad))
     return (sx, sy)
@@ -220,16 +220,18 @@ def render_kundali_chalit(
             <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{labels[h]}</w:t></w:r></w:p>
           </w:txbxContent></v:textbox>
         </v:rect>''')
-        (x1,y),(x2,_) = baselines[h]
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{x1},{y}" to="{x2},{y}" strokecolor="#000000" strokeweight="0.75pt"/>')
-        mx,my = _interpolate((x1,y),(x2,y),0.5)
-        shapes.append(f'<v:line style="position:absolute;z-index:5" from="{mx},{y-3}" to="{mx},{y+3}" strokecolor="#000000" strokeweight="0.5pt"/>')
-
+        # center baseline + tick removed
     # Planet markers + shift arrows
     mark_w, mark_h = 16, 12
     for p in placements:
         x, y = p['disp_xy']
         left = x - mark_w/2; top = y - mark_h/2
+        # Clamp inside the appropriate house bbox (rāśi for shifted, else Chalit)
+        house_idx = p['h_r'] if p['shift'] else p['h_c']
+        minx, miny, maxx, maxy = _bbox_of_poly(house_polys[house_idx])
+        _pad = max(2.0, S*0.01)
+        left = max(minx + _pad, min(left, maxx - _pad - mark_w))
+        top  = max(miny + _pad, min(top,  maxy - _pad - mark_h))
         shapes.append(f'''
         <v:roundrect arcsize="0.3" style="position:absolute;left:{left}pt;top:{top}pt;width:{mark_w}pt;height:{mark_h}pt;z-index:6" strokecolor="black" fillcolor="#ffffff" strokeweight="0.75pt">
           <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -239,26 +241,16 @@ def render_kundali_chalit(
         if p['shift']:
             a = p['shift']
             sx, sy = a['start']; ex, ey = a['end']
-            dx = ex - sx; dy = ey - sy
-            norm = (dx*dx + dy*dy) ** 0.5 or 1.0
-            nx = dx / norm; ny = dy / norm
-            sx2 = sx + nx * ARROW_START_GAP
-            sy2 = sy + ny * ARROW_START_GAP
-            ex2 = sx2 + nx * ARROW_LEN_PX
-            ey2 = sy2 + ny * ARROW_LEN_PX
-            mx = (sx2 + ex2) / 2.0
-            my = (sy2 + ey2) / 2.0
-            lx = mx - ny * ARROW_LABEL_OFFSET
-            ly = my + nx * ARROW_LABEL_OFFSET
             shapes.append(f'''
-            <v:line style="position:absolute;z-index:7" from="{sx2},{sy2}" to="{ex2},{ey2}" strokecolor="#333333" strokeweight="1pt">
+            <v:line style="position:absolute;z-index:7" from="{sx},{sy}" to="{ex},{ey}" strokecolor="#333333" strokeweight="1pt">
               <v:stroke endarrow="classic"/>
             </v:line>
-            <v:rect style="position:absolute;left:{lx - 8}pt;top:{ly - 10}pt;width:16pt;height:10pt;z-index:8" strokecolor="none" fillcolor="none">
+            <v:rect style="position:absolute;left:{(sx+ex)/2 - 8}pt;top:{(sy+ey)/2 - 8}pt;width:16pt;height:10pt;z-index:8" strokecolor="none">
               <v:textbox inset="0,0,0,0"><w:txbxContent xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                 <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{a['label']}</w:t></w:r></w:p>
               </w:txbxContent></v:textbox>
             </v:rect>''')
+
     # Close-pair double-headed arrows
     for ar in pair_arrows:
         (sx,sy) = ar['start']; (ex,ey) = ar['end']
@@ -282,3 +274,7 @@ def render_kundali_chalit(
     </w:r></w:p>
     '''
     return parse_xml(xml)
+
+def _bbox_of_poly(poly):
+    xs = [x for x,_ in poly]; ys = [y for _,y in poly]
+    return min(xs), min(ys), max(xs), max(ys)
