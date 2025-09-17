@@ -184,33 +184,33 @@ def render_kundali_chalit(
             disp_xy=disp_xy, eff_xy=effective_xy,
             shift=shift_arrow, self_flag=bool(_flags.get('own') or _flags.get('self') or _flags.get('own_sign'))
         ))
-
-
-    # Re-layout labels: if >2 in a display house, arrange in rows of 2
-    display_groups = {h: [] for h in range(1,13)}
+    # Re-layout labels: enforce 2-per-row whenever a display house has 3+ labels
+    from collections import defaultdict
+    groups = defaultdict(list)
     for p in placements:
-        disp_house = p['h_r'] if p['shift'] else p['h_c']
-        display_groups[disp_house].append(p)
-    for h in range(1,13):
-        group = display_groups[h]
+        disp_h = p['h_r'] if p['shift'] else p['h_c']
+        p['display_house'] = disp_h
+        groups[disp_h].append(p)
+
+    for h, group in groups.items():
         if len(group) <= 2:
             continue
-        # Sort by 't' for stable ordering
+        # stable order
         group.sort(key=lambda p: p['t'])
+        # use the house polygon bbox
         minx, miny, maxx, maxy = _bbox_of_poly(houses[h])
-        pad = max(4.0, S*0.03)
+        pad = max(6.0, S*0.045)   # more padding so labels don't touch edges
         cols = 2
         rows = (len(group) + cols - 1) // cols
         gw = (maxx - minx) - 2*pad
         gh = (maxy - miny) - 2*pad
-        # Cell center positions
         xs = [minx + pad + (i + 0.5) * gw / cols for i in range(cols)]
         ys = [miny + pad + (r + 0.5) * gh / rows for r in range(rows)]
         for idx, p in enumerate(group):
             r = idx // cols
             c = idx % cols
             p['disp_xy'] = (xs[c], ys[r])
-    
+    # Close-pair arrows
     # Close-pair arrows (≤ 6°) within each chalit house
     pair_arrows = []
     for h in range(1,13):
