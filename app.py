@@ -5,7 +5,6 @@
 APP_TITLE = "MRIDAASTRO"
 APP_TAGLINE = "In the light of divine, let your soul journey shine"
 from chalit_kundali_vml import render_kundali_chalit
-
 def decimal_to_dms(decimal_deg, is_latitude=True):
     """
     Convert decimal degrees to DMS format with direction (N/S/E/W).
